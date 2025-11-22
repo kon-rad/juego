@@ -65,7 +65,7 @@ game.get('/players', async (c) => {
 game.post('/player', async (c) => {
     try {
         const body = await c.req.json()
-        const { id, name, x, y, isAI } = body
+        const { id, name, avatarColor, x, y, isAI } = body
 
         // Get or create world
         let world = await prisma.gameWorld.findFirst({
@@ -94,6 +94,7 @@ game.post('/player', async (c) => {
                 id: id,
                 worldId: world.id,
                 name: name || `Player ${Math.floor(Math.random() * 1000)}`,
+                avatarColor: avatarColor || '#00ff00',
                 x,
                 y,
                 isAI: isAI || false

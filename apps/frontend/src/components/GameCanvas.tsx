@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Application, Graphics } from 'pixi.js';
-import { getOrCreatePlayerId, getOrCreatePlayerName } from '@/lib/player';
+import { getOrCreatePlayerId, getOrCreatePlayerName, getOrCreateAvatarColor } from '@/lib/player';
 
 interface GameCanvasProps {
     onAgentAction?: (action: any) => void;
@@ -14,12 +14,14 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
     const appRef = useRef<Application | null>(null);
     const [playerId, setPlayerId] = useState<string>('');
     const [playerName, setPlayerName] = useState<string>('');
+    const [avatarColor, setAvatarColor] = useState<string>('#00ff00');
     const playerSyncIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Initialize player ID and name from localStorage
+    // Initialize player ID, name, and color from localStorage
     useEffect(() => {
         setPlayerId(getOrCreatePlayerId());
         setPlayerName(getOrCreatePlayerName());
+        setAvatarColor(getOrCreateAvatarColor());
     }, []);
 
     useEffect(() => {
@@ -89,10 +91,12 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
             }
 
 
-            // Create player avatar
+            // Create player avatar with their color
             const player = new Graphics();
             player.circle(0, 0, 15);
-            player.fill(0x00ff00); // Green player
+            // Convert hex color to number for PixiJS
+            const colorNum = parseInt(avatarColor.replace('#', ''), 16);
+            player.fill(colorNum);
             player.x = app.screen.width / 2;
             player.y = app.screen.height / 2;
             // Add player to the world container
@@ -109,6 +113,7 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
                         body: JSON.stringify({
                             id: playerId,
                             name: playerName,
+                            avatarColor: avatarColor,
                             x: player.x,
                             y: player.y,
                             isAI: false
@@ -139,6 +144,7 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
                         body: JSON.stringify({
                             id: playerId,
                             name: playerName,
+                            avatarColor: avatarColor,
                             x: player.x,
                             y: player.y,
                             isAI: false
@@ -237,7 +243,8 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
             }
             // PixiJS v8 handles cleanup automatically
         };
-    }, [playerId, playerName, autoMode, onAgentAction]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Only run once on mount
 
     return <div ref={containerRef} className="relative w-full h-full" />;
 }

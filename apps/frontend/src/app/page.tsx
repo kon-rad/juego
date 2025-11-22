@@ -8,7 +8,7 @@ import MenuBar from '@/components/MenuBar';
 
 export default function Home() {
   const [logs, setLogs] = useState<AgentLog[]>([]);
-  const [autoMode, setAutoMode] = useState(true);
+  const [autoMode, setAutoMode] = useState(false);
 
   const handleAgentAction = (action: any) => {
     const newLog: AgentLog = {
