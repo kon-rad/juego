@@ -1,27 +1,140 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Application, Graphics } from 'pixi.js';
-import { getOrCreatePlayerId, getOrCreatePlayerName, getOrCreateAvatarColor } from '@/lib/player';
+import { Application, Graphics, Text } from 'pixi.js';
+import { 
+    getOrCreatePlayerData, 
+    setPlayerPosition, 
+    PlayerData 
+} from '@/lib/player';
+import {
+    connectSocket,
+    disconnectSocket,
+    joinGame,
+    updatePlayerPosition,
+    onPlayerJoined,
+    onPlayerUpdated,
+    onPlayerLeft,
+    onPlayersSync,
+    onConnect,
+    onDisconnect,
+    Player as SocketPlayer
+} from '@/lib/socket';
 
 interface GameCanvasProps {
     onAgentAction?: (action: any) => void;
+    onPlayerPositionChange?: (position: { x: number; y: number }) => void;
     autoMode?: boolean;
 }
 
-export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanvasProps) {
+export default function GameCanvas({ 
+    onAgentAction, 
+    onPlayerPositionChange,
+    autoMode = true 
+}: GameCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<Application | null>(null);
-    const [playerId, setPlayerId] = useState<string>('');
-    const [playerName, setPlayerName] = useState<string>('');
-    const [avatarColor, setAvatarColor] = useState<string>('#00ff00');
-    const playerSyncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const playerGraphicsRef = useRef<{ [playerId: string]: Graphics }>({});
+    const playerLabelsRef = useRef<{ [playerId: string]: Text }>({});
+    
+    const [currentPlayer, setCurrentPlayer] = useState<PlayerData | null>(null);
+    const [otherPlayers, setOtherPlayers] = useState<SocketPlayer[]>([]);
+    const [isConnected, setIsConnected] = useState(false);
+    
+    const positionSyncIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Initialize player ID, name, and color from localStorage
+    // Initialize player and socket connection
     useEffect(() => {
-        setPlayerId(getOrCreatePlayerId());
-        setPlayerName(getOrCreatePlayerName());
-        setAvatarColor(getOrCreateAvatarColor());
+        // Initialize player data with random spawn position
+        const playerData = getOrCreatePlayerData();
+        setCurrentPlayer(playerData);
+        
+        // Connect to socket server
+        const socket = connectSocket();
+        
+        // Set up socket event listeners
+        const cleanupFunctions = [
+            onConnect(() => {
+                console.log('Connected to game server');
+                setIsConnected(true);
+                // Join game when connected
+                joinGame({
+                    id: playerData.id,
+                    name: playerData.name,
+                    avatarColor: playerData.avatarColor,
+                    x: playerData.x,
+                    y: playerData.y,
+                    isAI: false
+                });
+            }),
+            
+            onDisconnect(() => {
+                console.log('Disconnected from game server');
+                setIsConnected(false);
+            }),
+            
+            onPlayersSync((players: SocketPlayer[]) => {
+                console.log('Received players sync:', players);
+                // Filter out current player from others
+                const others = players.filter(p => p.id !== playerData.id);
+                setOtherPlayers(others);
+            }),
+            
+            onPlayerJoined((player: SocketPlayer) => {
+                console.log('Player joined:', player.name);
+                setOtherPlayers(prev => [...prev, player]);
+            }),
+            
+            onPlayerUpdated((player: SocketPlayer) => {
+                console.log('Player updated:', player.name);
+                setOtherPlayers(prev => 
+                    prev.map(p => p.id === player.id ? player : p)
+                );
+            }),
+            
+            onPlayerLeft((playerId: string) => {
+                console.log('Player left:', playerId);
+                setOtherPlayers(prev => prev.filter(p => p.id !== playerId));
+            })
+        ];
+        
+        // Position sync interval (every 1 second instead of 2 for smoother movement)
+        positionSyncIntervalRef.current = setInterval(() => {
+            if (appRef.current && currentPlayer && isConnected) {
+                const playerGraphics = playerGraphicsRef.current[currentPlayer.id];
+                if (playerGraphics) {
+                    const newX = playerGraphics.x;
+                    const newY = playerGraphics.y;
+                    
+                    // Update localStorage
+                    setPlayerPosition(newX, newY);
+                    
+                    // Notify parent component of position change
+                    if (onPlayerPositionChange) {
+                        onPlayerPositionChange({ x: newX, y: newY });
+                    }
+                    
+                    // Send position update to server
+                    updatePlayerPosition({
+                        id: currentPlayer.id,
+                        name: currentPlayer.name,
+                        avatarColor: currentPlayer.avatarColor,
+                        x: newX,
+                        y: newY,
+                        isAI: false
+                    });
+                }
+            }
+        }, 1000);
+        
+        return () => {
+            // Cleanup
+            cleanupFunctions.forEach(cleanup => cleanup());
+            if (positionSyncIntervalRef.current) {
+                clearInterval(positionSyncIntervalRef.current);
+            }
+            disconnectSocket();
+        };
     }, []);
 
     useEffect(() => {
@@ -44,7 +157,7 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
         window.addEventListener('keyup', onKeyUp);
 
         const initGame = async () => {
-            if (!containerRef.current) return;
+            if (!containerRef.current || !currentPlayer) return;
 
             await app.init({
                 resizeTo: containerRef.current,
@@ -62,8 +175,8 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
 
             // Draw a grid to visualize movement
             const gridSize = 50;
-            const width = app.screen.width * 4; // Make world larger
-            const height = app.screen.height * 4;
+            const width = 2000; // Fixed world size for consistency
+            const height = 2000;
 
             world.strokeStyle = { width: 1, color: 0x333333 };
             for (let x = 0; x <= width; x += gridSize) {
@@ -90,73 +203,85 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
                 obstacles.push({ x: ox, y: oy, width: 100, height: 100 });
             }
 
-
-            // Create player avatar with their color
+            // Create current player avatar with their color and spawn position
             const player = new Graphics();
             player.circle(0, 0, 15);
-            // Convert hex color to number for PixiJS
-            const colorNum = parseInt(avatarColor.replace('#', ''), 16);
+            const colorNum = parseInt(currentPlayer.avatarColor.replace('#', ''), 16);
             player.fill(colorNum);
-            player.x = app.screen.width / 2;
-            player.y = app.screen.height / 2;
-            // Add player to the world container
+            player.x = currentPlayer.x;
+            player.y = currentPlayer.y;
             world.addChild(player);
+            playerGraphicsRef.current[currentPlayer.id] = player;
 
-            // Create player in backend
-            const createPlayerInBackend = async () => {
-                if (!playerId || !playerName) return;
+            // Add player name label
+            const playerLabel = new Text({
+                text: currentPlayer.name,
+                style: {
+                    fill: '#ffffff',
+                    fontSize: 12,
+                    fontWeight: 'bold'
+                }
+            });
+            playerLabel.x = player.x - playerLabel.width / 2;
+            playerLabel.y = player.y - 35;
+            world.addChild(playerLabel);
+            playerLabelsRef.current[currentPlayer.id] = playerLabel;
 
-                try {
-                    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/player`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            id: playerId,
-                            name: playerName,
-                            avatarColor: avatarColor,
-                            x: player.x,
-                            y: player.y,
-                            isAI: false
-                        })
-                    });
-
-                    if (response.ok) {
-                        console.log('Player created/updated in backend');
+            // Render other players
+            const renderOtherPlayers = () => {
+                // Remove graphics for players that no longer exist
+                Object.keys(playerGraphicsRef.current).forEach(playerId => {
+                    if (playerId !== currentPlayer.id && !otherPlayers.find(p => p.id === playerId)) {
+                        const graphics = playerGraphicsRef.current[playerId];
+                        const label = playerLabelsRef.current[playerId];
+                        if (graphics) world.removeChild(graphics);
+                        if (label) world.removeChild(label);
+                        delete playerGraphicsRef.current[playerId];
+                        delete playerLabelsRef.current[playerId];
                     }
-                } catch (error) {
-                    console.error('Failed to create player:', error);
-                }
+                });
+
+                // Add/update graphics for existing players
+                otherPlayers.forEach(playerData => {
+                    if (!playerGraphicsRef.current[playerData.id]) {
+                        // Create new player graphics
+                        const otherPlayer = new Graphics();
+                        otherPlayer.circle(0, 0, 15);
+                        const otherColorNum = parseInt(playerData.avatarColor.replace('#', ''), 16);
+                        otherPlayer.fill(otherColorNum);
+                        otherPlayer.x = playerData.x;
+                        otherPlayer.y = playerData.y;
+                        world.addChild(otherPlayer);
+                        playerGraphicsRef.current[playerData.id] = otherPlayer;
+
+                        // Add player name label
+                        const otherLabel = new Text({
+                            text: playerData.name,
+                            style: {
+                                fill: '#ffffff',
+                                fontSize: 12,
+                                fontWeight: 'bold'
+                            }
+                        });
+                        otherLabel.x = otherPlayer.x - otherLabel.width / 2;
+                        otherLabel.y = otherPlayer.y - 35;
+                        world.addChild(otherLabel);
+                        playerLabelsRef.current[playerData.id] = otherLabel;
+                    } else {
+                        // Update existing player graphics
+                        const graphics = playerGraphicsRef.current[playerData.id];
+                        const label = playerLabelsRef.current[playerData.id];
+                        if (graphics) {
+                            graphics.x = playerData.x;
+                            graphics.y = playerData.y;
+                        }
+                        if (label) {
+                            label.x = playerData.x - label.width / 2;
+                            label.y = playerData.y - 35;
+                        }
+                    }
+                });
             };
-
-            // Create player when entering world
-            if (playerId && playerName) {
-                createPlayerInBackend();
-            }
-
-            // Sync player position to backend periodically
-            const syncPlayerPosition = async () => {
-                if (!playerId) return;
-
-                try {
-                    await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/player`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            id: playerId,
-                            name: playerName,
-                            avatarColor: avatarColor,
-                            x: player.x,
-                            y: player.y,
-                            isAI: false
-                        })
-                    });
-                } catch (error) {
-                    console.error('Failed to sync player position:', error);
-                }
-            };
-
-            // Start position sync interval (every 2 seconds)
-            playerSyncIntervalRef.current = setInterval(syncPlayerPosition, 2000);
 
             // Game loop
             app.ticker.add((ticker) => {
@@ -172,11 +297,18 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
                 player.x += dx;
                 player.y += dy;
 
+                // Update player label position
+                playerLabel.x = player.x - playerLabel.width / 2;
+                playerLabel.y = player.y - 35;
+
                 // Camera follow
                 world.pivot.x = player.x;
                 world.pivot.y = player.y;
                 world.position.x = app.screen.width / 2;
                 world.position.y = app.screen.height / 2;
+
+                // Render other players
+                renderOtherPlayers();
             });
 
             // Agent Loop
@@ -204,15 +336,13 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
                     }
 
                     if (action.type === 'move') {
-                        // For now, just teleport or nudge.
-                        // In a real game, we'd set a target and move towards it in the ticker.
-                        // Let's just nudge for simplicity of the prototype.
                         if (action.payload) {
                             player.x += (action.payload.dx || 0) * 10;
                             player.y += (action.payload.dy || 0) * 10;
+                            playerLabel.x = player.x - playerLabel.width / 2;
+                            playerLabel.y = player.y - 35;
                         }
                     } else if (action.type === 'think' || action.type === 'plan' || action.type === 'converse') {
-                        // Display thought bubble?
                         console.log(`Agent ${action.type}:`, action.payload);
                     }
 
@@ -238,13 +368,10 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
             // Cleanup
             window.removeEventListener('keydown', onKeyDown);
             window.removeEventListener('keyup', onKeyUp);
-            if (playerSyncIntervalRef.current) {
-                clearInterval(playerSyncIntervalRef.current);
-            }
             // PixiJS v8 handles cleanup automatically
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Only run once on mount
+    }, [currentPlayer, otherPlayers]); // Re-run when player or others change
 
     return <div ref={containerRef} className="relative w-full h-full" />;
 }

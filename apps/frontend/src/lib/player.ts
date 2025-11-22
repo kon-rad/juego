@@ -11,6 +11,11 @@ export interface PlayerData {
 const PLAYER_KEY = 'juego_player_id';
 const PLAYER_NAME_KEY = 'juego_player_name';
 const PLAYER_COLOR_KEY = 'juego_player_color';
+const PLAYER_X_KEY = 'juego_player_x';
+const PLAYER_Y_KEY = 'juego_player_y';
+
+const DEFAULT_WORLD_WIDTH = 2000;
+const DEFAULT_WORLD_HEIGHT = 2000;
 
 /**
  * Generate a random vibrant color
@@ -29,6 +34,18 @@ function generateRandomColor(): string {
         '#C06C84', // Pink
     ];
     return colors[Math.floor(Math.random() * colors.length)];
+}
+
+/**
+ * Generate random spawn position within world bounds
+ */
+function generateRandomPosition(worldWidth: number = DEFAULT_WORLD_WIDTH, worldHeight: number = DEFAULT_WORLD_HEIGHT): { x: number; y: number } {
+    // Generate position within world bounds, leaving some margin from edges
+    const margin = 100;
+    const x = Math.random() * (worldWidth - margin * 2) + margin;
+    const y = Math.random() * (worldHeight - margin * 2) + margin;
+    
+    return { x, y };
 }
 
 /**
@@ -86,6 +103,52 @@ export function getOrCreateAvatarColor(): string {
 }
 
 /**
+ * Get or create player position
+ */
+export function getOrCreatePlayerPosition(): { x: number; y: number } {
+    if (typeof window === 'undefined') return { x: 0, y: 0 };
+
+    const xStr = localStorage.getItem(PLAYER_X_KEY);
+    const yStr = localStorage.getItem(PLAYER_Y_KEY);
+
+    if (xStr && yStr) {
+        return { x: parseFloat(xStr), y: parseFloat(yStr) };
+    }
+
+    // Generate new random position if none exists
+    const position = generateRandomPosition();
+    setPlayerPosition(position.x, position.y);
+    return position;
+}
+
+/**
+ * Set player position in localStorage
+ */
+export function setPlayerPosition(x: number, y: number): void {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(PLAYER_X_KEY, x.toString());
+    localStorage.setItem(PLAYER_Y_KEY, y.toString());
+}
+
+/**
+ * Get complete player data with all attributes
+ */
+export function getOrCreatePlayerData(): PlayerData {
+    const id = getOrCreatePlayerId();
+    const name = getOrCreatePlayerName();
+    const avatarColor = getOrCreateAvatarColor();
+    const position = getOrCreatePlayerPosition();
+
+    return {
+        id,
+        name,
+        avatarColor,
+        x: position.x,
+        y: position.y
+    };
+}
+
+/**
  * Update player name in localStorage
  */
 export function setPlayerName(name: string): void {
@@ -101,4 +164,21 @@ export function clearPlayerData(): void {
     localStorage.removeItem(PLAYER_KEY);
     localStorage.removeItem(PLAYER_NAME_KEY);
     localStorage.removeItem(PLAYER_COLOR_KEY);
+    localStorage.removeItem(PLAYER_X_KEY);
+    localStorage.removeItem(PLAYER_Y_KEY);
+}
+
+/**
+ * Get all connected players from the server (placeholder for future implementation)
+ */
+export async function getAllPlayers(): Promise<PlayerData[]> {
+    try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/players`);
+        if (response.ok) {
+            return await response.json();
+        }
+    } catch (error) {
+        console.error('Failed to fetch players:', error);
+    }
+    return [];
 }
