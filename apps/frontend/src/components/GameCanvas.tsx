@@ -107,7 +107,7 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
                 if (!playerId || !playerName) return;
 
                 try {
-                    const response = await fetch('http://localhost:3001/api/game/player', {
+                    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/player`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -138,7 +138,7 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
                 if (!playerId) return;
 
                 try {
-                    await fetch('http://localhost:3001/api/game/player', {
+                    await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/player`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -189,7 +189,7 @@ export default function GameCanvas({ onAgentAction, autoMode = true }: GameCanva
                 };
 
                 try {
-                    const response = await fetch('http://localhost:3001/api/agent/tick', {
+                    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/agent/tick`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ state })
