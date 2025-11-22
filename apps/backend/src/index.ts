@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { prisma } from './lib/prisma.js'
+import { connectToMongoDB } from './lib/mongodb.js'
 import { agent } from './routes/agent.js'
 import { game } from './routes/game.js'
 
@@ -19,7 +19,8 @@ app.get('/', (c) => {
 app.get('/health', async (c) => {
   try {
     // Check DB connection
-    await prisma.$queryRaw`SELECT 1`
+    const db = await connectToMongoDB()
+    await db.command({ ping: 1 })
     return c.json({ status: 'ok', db: 'connected' })
   } catch (e) {
     return c.json({ status: 'error', db: 'disconnected', error: String(e) }, 500)

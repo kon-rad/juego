@@ -1,41 +1,52 @@
 import { Hono } from 'hono'
-import { prisma } from '../lib/prisma.js'
+import { getGameWorldsCollection, getPlayersCollection, getWorldObjectsCollection, ObjectId } from '../lib/mongodb.js'
 
 const game = new Hono()
+
+// Helper to generate UUID-like string
+function generateId(): string {
+    return new ObjectId().toString()
+}
 
 // Get or create the default game world
 game.get('/world', async (c) => {
     try {
-        let world = await prisma.gameWorld.findFirst({
-            where: { name: 'default' },
-            include: {
-                players: {
-                    where: {
-                        lastActive: {
-                            gte: new Date(Date.now() - 5 * 60 * 1000) // Active in last 5 minutes
-                        }
-                    }
-                },
-                objects: true
-            }
-        })
+        const worldsCollection = await getGameWorldsCollection()
+        const playersCollection = await getPlayersCollection()
+        const objectsCollection = await getWorldObjectsCollection()
+
+        let world = await worldsCollection.findOne({ name: 'default' })
 
         if (!world) {
             // Create default world
-            world = await prisma.gameWorld.create({
-                data: {
-                    name: 'default',
-                    width: 4000,
-                    height: 4000
-                },
-                include: {
-                    players: true,
-                    objects: true
-                }
+            const result = await worldsCollection.insertOne({
+                name: 'default',
+                width: 4000,
+                height: 4000,
+                createdAt: new Date(),
+                updatedAt: new Date()
             })
+            world = await worldsCollection.findOne({ _id: result.insertedId })
         }
 
-        return c.json(world)
+        // Get active players (active in last 5 minutes)
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
+        const players = await playersCollection.find({
+            worldId: world!._id.toString(),
+            lastActive: { $gte: fiveMinutesAgo }
+        }).toArray()
+
+        // Get world objects
+        const objects = await objectsCollection.find({
+            worldId: world!._id.toString()
+        }).toArray()
+
+        return c.json({
+            ...world,
+            id: world!._id.toString(),
+            players: players.map(p => ({ ...p, id: p._id.toString() })),
+            objects: objects.map(o => ({ ...o, id: o._id.toString() }))
+        })
     } catch (error) {
         console.error('Error fetching world:', error)
         return c.json({ error: 'Failed to fetch world' }, 500)
@@ -45,16 +56,14 @@ game.get('/world', async (c) => {
 // Get all active players
 game.get('/players', async (c) => {
     try {
-        const players = await prisma.player.findMany({
-            where: {
-                lastActive: {
-                    gte: new Date(Date.now() - 5 * 60 * 1000) // Active in last 5 minutes
-                }
-            },
-            orderBy: { lastActive: 'desc' }
-        })
+        const playersCollection = await getPlayersCollection()
+        
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
+        const players = await playersCollection.find({
+            lastActive: { $gte: fiveMinutesAgo }
+        }).sort({ lastActive: -1 }).toArray()
 
-        return c.json(players)
+        return c.json(players.map(p => ({ ...p, id: p._id.toString() })))
     } catch (error) {
         console.error('Error fetching players:', error)
         return c.json({ error: 'Failed to fetch players' }, 500)
@@ -67,41 +76,57 @@ game.post('/player', async (c) => {
         const body = await c.req.json()
         const { id, name, avatarColor, x, y, isAI } = body
 
+        const worldsCollection = await getGameWorldsCollection()
+        const playersCollection = await getPlayersCollection()
+
         // Get or create world
-        let world = await prisma.gameWorld.findFirst({
-            where: { name: 'default' }
-        })
+        let world = await worldsCollection.findOne({ name: 'default' })
 
         if (!world) {
-            world = await prisma.gameWorld.create({
-                data: {
-                    name: 'default',
-                    width: 4000,
-                    height: 4000
-                }
+            const result = await worldsCollection.insertOne({
+                name: 'default',
+                width: 4000,
+                height: 4000,
+                createdAt: new Date(),
+                updatedAt: new Date()
             })
+            world = await worldsCollection.findOne({ _id: result.insertedId })
         }
 
-        // Use upsert to create or update player atomically
-        const player = await prisma.player.upsert({
-            where: { id: id || 'new-player' },
-            update: {
-                x,
-                y,
-                lastActive: new Date()
-            },
-            create: {
-                id: id,
-                worldId: world.id,
+        let player
+        if (id) {
+            // Try to update existing player
+            const result = await playersCollection.findOneAndUpdate(
+                { _id: new ObjectId(id) },
+                { 
+                    $set: { 
+                        x, 
+                        y, 
+                        lastActive: new Date() 
+                    } 
+                },
+                { returnDocument: 'after' }
+            )
+            player = result
+        }
+
+        if (!player) {
+            // Create new player
+            const newPlayer = {
+                worldId: world!._id.toString(),
                 name: name || `Player ${Math.floor(Math.random() * 1000)}`,
                 avatarColor: avatarColor || '#00ff00',
                 x,
                 y,
-                isAI: isAI || false
+                isAI: isAI || false,
+                lastActive: new Date(),
+                createdAt: new Date()
             }
-        })
+            const result = await playersCollection.insertOne(newPlayer)
+            player = { ...newPlayer, _id: result.insertedId }
+        }
 
-        return c.json(player)
+        return c.json({ ...player, id: player._id.toString() })
     } catch (error) {
         console.error('Error updating player:', error)
         return c.json({ error: 'Failed to update player' }, 500)
@@ -112,10 +137,9 @@ game.post('/player', async (c) => {
 game.delete('/player/:id', async (c) => {
     try {
         const id = c.req.param('id')
+        const playersCollection = await getPlayersCollection()
 
-        await prisma.player.delete({
-            where: { id }
-        })
+        await playersCollection.deleteOne({ _id: new ObjectId(id) })
 
         return c.json({ success: true })
     } catch (error) {
@@ -130,41 +154,41 @@ game.post('/world/init', async (c) => {
         const body = await c.req.json()
         const { obstacles } = body
 
+        const worldsCollection = await getGameWorldsCollection()
+        const objectsCollection = await getWorldObjectsCollection()
+
         // Get or create world
-        let world = await prisma.gameWorld.findFirst({
-            where: { name: 'default' }
-        })
+        let world = await worldsCollection.findOne({ name: 'default' })
 
         if (!world) {
-            world = await prisma.gameWorld.create({
-                data: {
-                    name: 'default',
-                    width: 4000,
-                    height: 4000
-                }
+            const result = await worldsCollection.insertOne({
+                name: 'default',
+                width: 4000,
+                height: 4000,
+                createdAt: new Date(),
+                updatedAt: new Date()
             })
+            world = await worldsCollection.findOne({ _id: result.insertedId })
         }
 
         // Delete existing obstacles
-        await prisma.worldObject.deleteMany({
-            where: { worldId: world.id }
-        })
+        await objectsCollection.deleteMany({ worldId: world!._id.toString() })
 
         // Create new obstacles
         if (obstacles && obstacles.length > 0) {
-            await prisma.worldObject.createMany({
-                data: obstacles.map((obs: any) => ({
-                    worldId: world.id,
-                    type: 'obstacle',
-                    x: obs.x,
-                    y: obs.y,
-                    width: obs.width,
-                    height: obs.height
-                }))
-            })
+            const obstacleDocuments = obstacles.map((obs: any) => ({
+                worldId: world!._id.toString(),
+                type: 'obstacle',
+                x: obs.x,
+                y: obs.y,
+                width: obs.width,
+                height: obs.height,
+                createdAt: new Date()
+            }))
+            await objectsCollection.insertMany(obstacleDocuments)
         }
 
-        return c.json({ success: true, worldId: world.id })
+        return c.json({ success: true, worldId: world!._id.toString() })
     } catch (error) {
         console.error('Error initializing world:', error)
         return c.json({ error: 'Failed to initialize world' }, 500)
