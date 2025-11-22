@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import GameCanvas from '@/components/GameCanvas';
+import GameCanvas, { NearbyPlayer } from '@/components/GameCanvas';
 import AgentPanel, { AgentLog } from '@/components/AgentPanel';
 import GameStatePanel from '@/components/GameStatePanel';
 import MenuBar from '@/components/MenuBar';
@@ -12,6 +12,7 @@ export default function Home() {
   const [currentPosition, setCurrentPosition] = useState<{ x: number; y: number } | undefined>();
   const [playerCount, setPlayerCount] = useState(1);
   const [isConnected, setIsConnected] = useState(false);
+  const [nearbyPlayers, setNearbyPlayers] = useState<NearbyPlayer[]>([]);
 
   const handleAgentAction = (action: any) => {
     const newLog: AgentLog = {
@@ -27,6 +28,26 @@ export default function Home() {
     setCurrentPosition(position);
   };
 
+  const handleConnectionStatusChange = (connected: boolean) => {
+    setIsConnected(connected);
+  };
+
+  const handleNearbyPlayersChange = (players: NearbyPlayer[]) => {
+    setNearbyPlayers(players);
+  };
+
+  const handleStartConversation = (player: NearbyPlayer) => {
+    console.log('Starting conversation with:', player.name);
+    // Add a log entry for the conversation
+    const newLog: AgentLog = {
+      id: Math.random().toString(36).substring(7),
+      timestamp: new Date(),
+      type: 'converse',
+      content: { message: `Started conversation with ${player.name}` }
+    };
+    setLogs(prev => [newLog, ...prev]);
+  };
+
   return (
     <main className="h-screen w-screen overflow-hidden bg-deep-black grid grid-cols-[1fr_384px] grid-rows-[32px_1fr_80px]">
       {/* Menu Bar - Top (spans both columns) */}
@@ -36,11 +57,43 @@ export default function Home() {
 
       {/* Game Canvas - Center Left */}
       <div className="relative w-full h-full border-2 border-matrix-green/30 rounded-lg overflow-hidden glow-green-subtle">
-        <GameCanvas 
-          onAgentAction={handleAgentAction} 
+        <GameCanvas
+          onAgentAction={handleAgentAction}
           onPlayerPositionChange={handlePlayerPositionChange}
-          autoMode={autoMode} 
+          onConnectionStatusChange={handleConnectionStatusChange}
+          onNearbyPlayersChange={handleNearbyPlayersChange}
+          onPlayerCountChange={setPlayerCount}
+          autoMode={autoMode}
         />
+
+        {/* Nearby Players Conversation Menu */}
+        {nearbyPlayers.length > 0 && (
+          <div className="absolute bottom-4 left-4 bg-black/80 border border-matrix-green/50 rounded-lg p-3 max-w-xs">
+            <h3 className="text-matrix-green text-sm font-bold mb-2">
+              Nearby Players ({nearbyPlayers.length})
+            </h3>
+            <ul className="space-y-2">
+              {nearbyPlayers.map((player) => (
+                <li key={player.id} className="flex items-center gap-2">
+                  <div
+                    className="w-4 h-4 rounded-full"
+                    style={{ backgroundColor: player.avatarColor }}
+                  />
+                  <span className="text-white text-sm flex-1">{player.name}</span>
+                  <span className="text-gray-400 text-xs">
+                    {Math.round(player.distance)}px
+                  </span>
+                  <button
+                    onClick={() => handleStartConversation(player)}
+                    className="px-2 py-1 bg-matrix-green/20 hover:bg-matrix-green/40 border border-matrix-green/50 rounded text-matrix-green text-xs transition-colors"
+                  >
+                    Chat
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Agent Panel - Right Side (spans 2 rows) */}

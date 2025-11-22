@@ -21,33 +21,67 @@ import {
     Player as SocketPlayer
 } from '@/lib/socket';
 
+export interface NearbyPlayer {
+    id: string;
+    name: string;
+    avatarColor: string;
+    distance: number;
+}
+
 interface GameCanvasProps {
     onAgentAction?: (action: any) => void;
     onPlayerPositionChange?: (position: { x: number; y: number }) => void;
+    onConnectionStatusChange?: (isConnected: boolean) => void;
+    onNearbyPlayersChange?: (players: NearbyPlayer[]) => void;
+    onPlayerCountChange?: (count: number) => void;
     autoMode?: boolean;
+    proximityThreshold?: number;
 }
 
-export default function GameCanvas({ 
-    onAgentAction, 
+export default function GameCanvas({
+    onAgentAction,
     onPlayerPositionChange,
-    autoMode = true 
+    onConnectionStatusChange,
+    onNearbyPlayersChange,
+    onPlayerCountChange,
+    autoMode = true,
+    proximityThreshold = 150
 }: GameCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<Application | null>(null);
     const playerGraphicsRef = useRef<{ [playerId: string]: Graphics }>({});
     const playerLabelsRef = useRef<{ [playerId: string]: Text }>({});
+    const keysRef = useRef<{ [key: string]: boolean }>({});
+    const worldRef = useRef<Graphics | null>(null);
+    const playerRef = useRef<Graphics | null>(null);
+    const playerLabelRef = useRef<Text | null>(null);
     
     const [currentPlayer, setCurrentPlayer] = useState<PlayerData | null>(null);
     const [otherPlayers, setOtherPlayers] = useState<SocketPlayer[]>([]);
     const [isConnected, setIsConnected] = useState(false);
-    
-    const positionSyncIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Initialize player and socket connection
+    const positionSyncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const playerIdRef = useRef<string>('');
+    const otherPlayersRef = useRef<SocketPlayer[]>([]);
+    const lastNearbyPlayersRef = useRef<string>('');
+
+    // Keep otherPlayersRef in sync with state
+    useEffect(() => {
+        otherPlayersRef.current = otherPlayers;
+    }, [otherPlayers]);
+
+    // Notify parent of player count changes (current player + other players)
+    useEffect(() => {
+        const totalPlayers = 1 + otherPlayers.length; // 1 for current player
+        onPlayerCountChange?.(totalPlayers);
+    }, [otherPlayers, onPlayerCountChange]);
+
+    // Initialize player and socket connection (runs once)
     useEffect(() => {
         // Initialize player data with random spawn position
         const playerData = getOrCreatePlayerData();
         setCurrentPlayer(playerData);
+        playerIdRef.current = playerData.id;
         
         // Connect to socket server
         const socket = connectSocket();
@@ -57,6 +91,7 @@ export default function GameCanvas({
             onConnect(() => {
                 console.log('Connected to game server');
                 setIsConnected(true);
+                onConnectionStatusChange?.(true);
                 // Join game when connected
                 joinGame({
                     id: playerData.id,
@@ -71,6 +106,7 @@ export default function GameCanvas({
             onDisconnect(() => {
                 console.log('Disconnected from game server');
                 setIsConnected(false);
+                onConnectionStatusChange?.(false);
             }),
             
             onPlayersSync((players: SocketPlayer[]) => {
@@ -98,79 +134,69 @@ export default function GameCanvas({
             })
         ];
         
-        // Position sync interval (every 1 second instead of 2 for smoother movement)
-        positionSyncIntervalRef.current = setInterval(() => {
-            if (appRef.current && currentPlayer && isConnected) {
-                const playerGraphics = playerGraphicsRef.current[currentPlayer.id];
-                if (playerGraphics) {
-                    const newX = playerGraphics.x;
-                    const newY = playerGraphics.y;
-                    
-                    // Update localStorage
-                    setPlayerPosition(newX, newY);
-                    
-                    // Notify parent component of position change
-                    if (onPlayerPositionChange) {
-                        onPlayerPositionChange({ x: newX, y: newY });
-                    }
-                    
-                    // Send position update to server
-                    updatePlayerPosition({
-                        id: currentPlayer.id,
-                        name: currentPlayer.name,
-                        avatarColor: currentPlayer.avatarColor,
-                        x: newX,
-                        y: newY,
-                        isAI: false
-                    });
-                }
-            }
-        }, 1000);
-        
         return () => {
             // Cleanup
             cleanupFunctions.forEach(cleanup => cleanup());
             if (positionSyncIntervalRef.current) {
                 clearInterval(positionSyncIntervalRef.current);
+                positionSyncIntervalRef.current = null;
             }
             disconnectSocket();
         };
     }, []);
 
+    // Separate useEffect for keyboard handling to prevent recreation
     useEffect(() => {
-        // Initialize PixiJS Application
-        const app = new Application();
-        appRef.current = app;
-
-        // Movement state
-        const keys: { [key: string]: boolean } = {};
+        const keys = keysRef.current;
 
         const onKeyDown = (e: KeyboardEvent) => {
             keys[e.key] = true;
+            keys[e.key.toLowerCase()] = true; // Also handle lowercase
+            console.log(`Key pressed: ${e.key}`, Object.keys(keys).filter(k => keys[k]));
         };
 
         const onKeyUp = (e: KeyboardEvent) => {
             keys[e.key] = false;
+            keys[e.key.toLowerCase()] = false; // Also handle lowercase
+            console.log(`Key released: ${e.key}`, Object.keys(keys).filter(k => keys[k]));
         };
 
         window.addEventListener('keydown', onKeyDown);
         window.addEventListener('keyup', onKeyUp);
 
-        const initGame = async () => {
-            if (!containerRef.current || !currentPlayer) return;
+        return () => {
+            window.removeEventListener('keydown', onKeyDown);
+            window.removeEventListener('keyup', onKeyUp);
+        };
+    }, []);
 
+    // Initialize PixiJS Application (runs once, no dependencies)
+    useEffect(() => {
+        // Prevent multiple initializations
+        if (appRef.current || !containerRef.current || !currentPlayer) {
+            return;
+        }
+
+        // Initialize PixiJS Application
+        const app = new Application();
+        appRef.current = app;
+
+        const initGame = async () => {
             await app.init({
-                resizeTo: containerRef.current,
+                resizeTo: containerRef.current!,
                 background: '#1a1a1a',
                 antialias: true,
             });
 
+            // Clear any existing canvas
             if (containerRef.current) {
+                containerRef.current.innerHTML = '';
                 containerRef.current.appendChild(app.canvas);
             }
 
             // Create a world container
             const world = new Graphics();
+            worldRef.current = world;
             app.stage.addChild(world);
 
             // Draw a grid to visualize movement
@@ -205,7 +231,8 @@ export default function GameCanvas({
 
             // Create current player avatar with their color and spawn position
             const player = new Graphics();
-            player.circle(0, 0, 15);
+            playerRef.current = player;
+            player.circle(0, 0, 20); // Make it larger for visibility
             const colorNum = parseInt(currentPlayer.avatarColor.replace('#', ''), 16);
             player.fill(colorNum);
             player.x = currentPlayer.x;
@@ -215,23 +242,41 @@ export default function GameCanvas({
 
             // Add player name label
             const playerLabel = new Text({
-                text: currentPlayer.name,
+                text: currentPlayer.name + ' (You)',
                 style: {
                     fill: '#ffffff',
-                    fontSize: 12,
+                    fontSize: 14,
                     fontWeight: 'bold'
                 }
             });
+            playerLabelRef.current = playerLabel;
             playerLabel.x = player.x - playerLabel.width / 2;
-            playerLabel.y = player.y - 35;
+            playerLabel.y = player.y - 40;
             world.addChild(playerLabel);
             playerLabelsRef.current[currentPlayer.id] = playerLabel;
 
-            // Render other players
+            // Center camera on player initially
+            const centerCameraOnPlayer = () => {
+                world.pivot.x = player.x;
+                world.pivot.y = player.y;
+                world.position.x = app.screen.width / 2;
+                world.position.y = app.screen.height / 2;
+            };
+
+            // Center camera on player
+            centerCameraOnPlayer();
+
+            // Render other players and check proximity
             const renderOtherPlayers = () => {
+                const world = worldRef.current;
+                if (!world) return;
+
+                const currentPlayers = otherPlayersRef.current;
+                const currentPlayerId = playerIdRef.current;
+
                 // Remove graphics for players that no longer exist
                 Object.keys(playerGraphicsRef.current).forEach(playerId => {
-                    if (playerId !== currentPlayer.id && !otherPlayers.find(p => p.id === playerId)) {
+                    if (playerId !== currentPlayerId && !currentPlayers.find(p => p.id === playerId)) {
                         const graphics = playerGraphicsRef.current[playerId];
                         const label = playerLabelsRef.current[playerId];
                         if (graphics) world.removeChild(graphics);
@@ -241,12 +286,15 @@ export default function GameCanvas({
                     }
                 });
 
+                // Track nearby players for proximity detection
+                const nearbyPlayers: NearbyPlayer[] = [];
+
                 // Add/update graphics for existing players
-                otherPlayers.forEach(playerData => {
+                currentPlayers.forEach(playerData => {
                     if (!playerGraphicsRef.current[playerData.id]) {
                         // Create new player graphics
                         const otherPlayer = new Graphics();
-                        otherPlayer.circle(0, 0, 15);
+                        otherPlayer.circle(0, 0, 20);
                         const otherColorNum = parseInt(playerData.avatarColor.replace('#', ''), 16);
                         otherPlayer.fill(otherColorNum);
                         otherPlayer.x = playerData.x;
@@ -259,12 +307,12 @@ export default function GameCanvas({
                             text: playerData.name,
                             style: {
                                 fill: '#ffffff',
-                                fontSize: 12,
+                                fontSize: 14,
                                 fontWeight: 'bold'
                             }
                         });
                         otherLabel.x = otherPlayer.x - otherLabel.width / 2;
-                        otherLabel.y = otherPlayer.y - 35;
+                        otherLabel.y = otherPlayer.y - 40;
                         world.addChild(otherLabel);
                         playerLabelsRef.current[playerData.id] = otherLabel;
                     } else {
@@ -277,39 +325,112 @@ export default function GameCanvas({
                         }
                         if (label) {
                             label.x = playerData.x - label.width / 2;
-                            label.y = playerData.y - 35;
+                            label.y = playerData.y - 40;
+                        }
+                    }
+
+                    // Check proximity to current player
+                    if (playerRef.current) {
+                        const dx = playerData.x - playerRef.current.x;
+                        const dy = playerData.y - playerRef.current.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
+                        if (distance <= proximityThreshold) {
+                            nearbyPlayers.push({
+                                id: playerData.id,
+                                name: playerData.name,
+                                avatarColor: playerData.avatarColor,
+                                distance
+                            });
                         }
                     }
                 });
+
+                // Notify about nearby players (only if changed)
+                const nearbyKey = nearbyPlayers.map(p => p.id).sort().join(',');
+                if (nearbyKey !== lastNearbyPlayersRef.current) {
+                    lastNearbyPlayersRef.current = nearbyKey;
+                    onNearbyPlayersChange?.(nearbyPlayers);
+                }
             };
 
-            // Game loop
+            // Enhanced game loop with fixed keyboard state reference and camera following
             app.ticker.add((ticker) => {
-                const speed = 5 * ticker.deltaTime;
+                // Fixed speed for consistent movement
+                const speed = 8; // Fixed speed for better control
                 let dx = 0;
                 let dy = 0;
+                let moving = false;
 
-                if (keys['w'] || keys['ArrowUp']) dy -= speed;
-                if (keys['s'] || keys['ArrowDown']) dy += speed;
-                if (keys['a'] || keys['ArrowLeft']) dx -= speed;
-                if (keys['d'] || keys['ArrowRight']) dx += speed;
+                // Use the persistent keys ref instead of recreated local variable
+                const keys = keysRef.current;
 
-                player.x += dx;
-                player.y += dy;
+                // Check for movement keys
+                if (keys['w'] || keys['W'] || keys['ArrowUp']) {
+                    dy -= speed;
+                    moving = true;
+                }
+                if (keys['s'] || keys['S'] || keys['ArrowDown']) {
+                    dy += speed;
+                    moving = true;
+                }
+                if (keys['a'] || keys['A'] || keys['ArrowLeft']) {
+                    dx -= speed;
+                    moving = true;
+                }
+                if (keys['d'] || keys['D'] || keys['ArrowRight']) {
+                    dx += speed;
+                    moving = true;
+                }
 
-                // Update player label position
-                playerLabel.x = player.x - playerLabel.width / 2;
-                playerLabel.y = player.y - 35;
+                if (moving && playerRef.current && playerLabelRef.current) {
+                    const oldX = player.x;
+                    const oldY = player.y;
 
-                // Camera follow
-                world.pivot.x = player.x;
-                world.pivot.y = player.y;
-                world.position.x = app.screen.width / 2;
-                world.position.y = app.screen.height / 2;
+                    player.x += dx;
+                    player.y += dy;
 
-                // Render other players
+                    console.log(`Player moved from (${oldX.toFixed(1)}, ${oldY.toFixed(1)}) to (${player.x.toFixed(1)}, ${player.y.toFixed(1)})`);
+
+                    // Update player label position
+                    playerLabel.x = player.x - playerLabel.width / 2;
+                    playerLabel.y = player.y - 40;
+
+                    // Notify parent component of position change immediately for responsive display
+                    if (onPlayerPositionChange) {
+                        onPlayerPositionChange({ x: player.x, y: player.y });
+                    }
+
+                    // Camera follow - always center on player
+                    centerCameraOnPlayer();
+                }
+
+                // Always render other players (even when not moving) to update their positions
                 renderOtherPlayers();
             });
+
+            // Position sync interval (every 2 seconds)
+            positionSyncIntervalRef.current = setInterval(() => {
+                if (currentPlayer && isConnected && playerRef.current) {
+                    const newX = player.x;
+                    const newY = player.y;
+                    
+                    console.log(`Syncing position: (${newX.toFixed(1)}, ${newY.toFixed(1)})`);
+                    
+                    // Update localStorage
+                    setPlayerPosition(newX, newY);
+                    
+                    // Send position update to server
+                    updatePlayerPosition({
+                        id: currentPlayer.id,
+                        name: currentPlayer.name,
+                        avatarColor: currentPlayer.avatarColor,
+                        x: newX,
+                        y: newY,
+                        isAI: false
+                    });
+                }
+            }, 2000);
 
             // Agent Loop
             const runAgent = async () => {
@@ -336,11 +457,19 @@ export default function GameCanvas({
                     }
 
                     if (action.type === 'move') {
-                        if (action.payload) {
+                        if (action.payload && playerRef.current && playerLabelRef.current) {
                             player.x += (action.payload.dx || 0) * 10;
                             player.y += (action.payload.dy || 0) * 10;
                             playerLabel.x = player.x - playerLabel.width / 2;
-                            playerLabel.y = player.y - 35;
+                            playerLabel.y = player.y - 40;
+                            
+                            // Notify parent component of position change for agent movement too
+                            if (onPlayerPositionChange) {
+                                onPlayerPositionChange({ x: player.x, y: player.y });
+                            }
+                            
+                            // Update camera for agent movement too
+                            centerCameraOnPlayer();
                         }
                     } else if (action.type === 'think' || action.type === 'plan' || action.type === 'converse') {
                         console.log(`Agent ${action.type}:`, action.payload);
@@ -365,13 +494,84 @@ export default function GameCanvas({
         initGame();
 
         return () => {
-            // Cleanup
-            window.removeEventListener('keydown', onKeyDown);
-            window.removeEventListener('keyup', onKeyUp);
-            // PixiJS v8 handles cleanup automatically
+            // Cleanup - destroy the PixiJS app properly
+            if (appRef.current) {
+                appRef.current.destroy(true);
+                appRef.current = null;
+            }
+            
+            // Clear references
+            worldRef.current = null;
+            playerRef.current = null;
+            playerLabelRef.current = null;
+            
+            if (positionSyncIntervalRef.current) {
+                clearInterval(positionSyncIntervalRef.current);
+                positionSyncIntervalRef.current = null;
+            }
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentPlayer, otherPlayers]); // Re-run when player or others change
+    }, [currentPlayer]); // Only depend on currentPlayer
+
+    // Update other players when they change (separate effect)
+    useEffect(() => {
+        if (!worldRef.current || !currentPlayer) return;
+
+        const world = worldRef.current;
+        const currentPlayerId = currentPlayer.id;
+
+        // Remove graphics for players that no longer exist
+        Object.keys(playerGraphicsRef.current).forEach(playerId => {
+            if (playerId !== currentPlayerId && !otherPlayers.find(p => p.id === playerId)) {
+                const graphics = playerGraphicsRef.current[playerId];
+                const label = playerLabelsRef.current[playerId];
+                if (graphics) world.removeChild(graphics);
+                if (label) world.removeChild(label);
+                delete playerGraphicsRef.current[playerId];
+                delete playerLabelsRef.current[playerId];
+            }
+        });
+
+        // Add/update graphics for existing players
+        otherPlayers.forEach(playerData => {
+            if (!playerGraphicsRef.current[playerData.id]) {
+                // Create new player graphics
+                const otherPlayer = new Graphics();
+                otherPlayer.circle(0, 0, 20);
+                const otherColorNum = parseInt(playerData.avatarColor.replace('#', ''), 16);
+                otherPlayer.fill(otherColorNum);
+                otherPlayer.x = playerData.x;
+                otherPlayer.y = playerData.y;
+                world.addChild(otherPlayer);
+                playerGraphicsRef.current[playerData.id] = otherPlayer;
+
+                // Add player name label
+                const otherLabel = new Text({
+                    text: playerData.name,
+                    style: {
+                        fill: '#ffffff',
+                        fontSize: 14,
+                        fontWeight: 'bold'
+                    }
+                });
+                otherLabel.x = otherPlayer.x - otherLabel.width / 2;
+                otherLabel.y = otherPlayer.y - 40;
+                world.addChild(otherLabel);
+                playerLabelsRef.current[playerData.id] = otherLabel;
+            } else {
+                // Update existing player graphics
+                const graphics = playerGraphicsRef.current[playerData.id];
+                const label = playerLabelsRef.current[playerData.id];
+                if (graphics) {
+                    graphics.x = playerData.x;
+                    graphics.y = playerData.y;
+                }
+                if (label) {
+                    label.x = playerData.x - label.width / 2;
+                    label.y = playerData.y - 40;
+                }
+            }
+        });
+    }, [otherPlayers, currentPlayer]);
 
     return <div ref={containerRef} className="relative w-full h-full" />;
 }
