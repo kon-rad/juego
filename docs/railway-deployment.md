@@ -34,7 +34,7 @@ With:
    - **Start Command**: `npm run dev`
 
 7. Add environment variables:
-   - `DATABASE_URL` = `postgresql://neondb_owner:npg_ygnR0jDUFG7V@ep-late-silence-aeza4h9p.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require`
+   - `DATABASE_URL` = <YOUR_DATABASE_URL>
    - `PORT` = `${{RAILWAY_PROVIDED_PORT}}`
 
 8. Click **"Deploy"**
@@ -73,7 +73,7 @@ Railway automatically deploys on every push to main branch once connected to Git
 
 ### Backend (Railway)
 ```
-DATABASE_URL=postgresql://neondb_owner:npg_ygnR0jDUFG7V@ep-late-silence-aeza4h9p.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require
+DATABASE_URL=<YOUR_DATABASE_URL>
 PORT=${{RAILWAY_PROVIDED_PORT}}
 ```
 
