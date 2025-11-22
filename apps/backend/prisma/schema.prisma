@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Creator {
+  id               String    @id @default(uuid()) @db.Uuid
+  username         String    @unique @db.VarChar(50)
+  email            String    @unique @db.VarChar(255)
+  walletAddress    String    @map("wallet_address") @db.VarChar(42)
+  displayName      String?   @map("display_name") @db.VarChar(100)
+  bio              String?
+  avatarUrl        String?   @map("avatar_url")
+  knowledgeBaseCid String?   @map("knowledge_base_cid")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  services         Service[]
+  sessions         Session[]
+
+  @@map("creators")
+  @@index([username])
+}
+
+model Service {
+  id              String    @id @default(uuid()) @db.Uuid
+  creatorId       String    @map("creator_id") @db.Uuid
+  creator         Creator   @relation(fields: [creatorId], references: [id])
+  name            String    @db.VarChar(100)
+  description     String?
+  priceJuego      Decimal   @map("price_juego") @db.Decimal(18, 2)
+  durationMinutes Int?      @map("duration_minutes")
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  sessions        Session[]
+
+  @@map("services")
+}
+
+model Session {
+  id            String    @id @default(uuid()) @db.Uuid
+  creatorId     String    @map("creator_id") @db.Uuid
+  creator       Creator   @relation(fields: [creatorId], references: [id])
+  clientWallet  String    @map("client_wallet") @db.VarChar(42)
+  serviceId     String?   @map("service_id") @db.Uuid
+  service       Service?  @relation(fields: [serviceId], references: [id])
+  amountPaid    Decimal?  @map("amount_paid") @db.Decimal(18, 2)
+  paymentTxHash String?   @map("payment_tx_hash") @db.VarChar(66)
+  startedAt     DateTime  @default(now()) @map("started_at")
+  endedAt       DateTime? @map("ended_at")
+  status        String?   @db.VarChar(20)
+
+  messages      Message[]
+
+  @@map("sessions")
+  @@index([creatorId])
+}
+
+model Message {
+  id        String   @id @default(uuid()) @db.Uuid
+  sessionId String   @map("session_id") @db.Uuid
+  session   Session  @relation(fields: [sessionId], references: [id])
+  role      String   @db.VarChar(20)
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("messages")
+  @@index([sessionId])
+}
