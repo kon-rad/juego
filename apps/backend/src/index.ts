@@ -1,8 +1,16 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { prisma } from './lib/prisma.js'
+import { agent } from './routes/agent.js'
+import { game } from './routes/game.js'
 
 const app = new Hono()
+
+app.use('/*', cors())
+
+app.route('/api/agent', agent)
+app.route('/api/game', game)
 
 app.get('/', (c) => {
   return c.text('Juego Backend API')

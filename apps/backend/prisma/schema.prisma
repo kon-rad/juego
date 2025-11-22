@@ -4,6 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Creator {
@@ -69,4 +70,51 @@ model Message {
 
   @@map("messages")
   @@index([sessionId])
+}
+
+// Game State Models for Multiplayer
+model GameWorld {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(100)
+  width     Int
+  height    Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  players Player[]
+  objects WorldObject[]
+
+  @@map("game_worlds")
+}
+
+model Player {
+  id          String    @id @default(uuid()) @db.Uuid
+  worldId     String    @map("world_id") @db.Uuid
+  world       GameWorld @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  name        String    @db.VarChar(50)
+  avatarColor String    @default("#00ff00") @map("avatar_color") @db.VarChar(7)
+  x           Float
+  y           Float
+  isAI        Boolean   @default(false) @map("is_ai")
+  lastActive  DateTime  @default(now()) @map("last_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("players")
+  @@index([worldId])
+  @@index([lastActive])
+}
+
+model WorldObject {
+  id        String    @id @default(uuid()) @db.Uuid
+  worldId   String    @map("world_id") @db.Uuid
+  world     GameWorld @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  type      String    @db.VarChar(50) // 'obstacle', 'building', etc.
+  x         Float
+  y         Float
+  width     Float
+  height    Float
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("world_objects")
+  @@index([worldId])
 }
