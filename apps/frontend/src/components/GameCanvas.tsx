@@ -2,11 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Application, Graphics, Text } from 'pixi.js';
-import { 
-    getOrCreatePlayerData, 
-    setPlayerPosition, 
-    PlayerData 
+import {
+    getOrCreatePlayerFromMongoDB,
+    setPlayerPosition,
+    PlayerData
 } from '@/lib/player';
+import {
+    updatePlayerPositionInMongoDB,
+    getOrCreateWorld
+} from '@/lib/mongodb-api';
 import {
     connectSocket,
     disconnectSocket,
@@ -78,63 +82,74 @@ export default function GameCanvas({
 
     // Initialize player and socket connection (runs once)
     useEffect(() => {
-        // Initialize player data with random spawn position
-        const playerData = getOrCreatePlayerData();
-        setCurrentPlayer(playerData);
-        playerIdRef.current = playerData.id;
-        
-        // Connect to socket server
-        const socket = connectSocket();
-        
-        // Set up socket event listeners
-        const cleanupFunctions = [
-            onConnect(() => {
-                console.log('Connected to game server');
-                setIsConnected(true);
-                onConnectionStatusChange?.(true);
-                // Join game when connected
-                joinGame({
-                    id: playerData.id,
-                    name: playerData.name,
-                    avatarColor: playerData.avatarColor,
-                    x: playerData.x,
-                    y: playerData.y,
-                    isAI: false
-                });
-            }),
-            
-            onDisconnect(() => {
-                console.log('Disconnected from game server');
-                setIsConnected(false);
-                onConnectionStatusChange?.(false);
-            }),
-            
-            onPlayersSync((players: SocketPlayer[]) => {
-                console.log('Received players sync:', players);
-                // Filter out current player from others
-                const others = players.filter(p => p.id !== playerData.id);
-                setOtherPlayers(others);
-            }),
-            
-            onPlayerJoined((player: SocketPlayer) => {
-                console.log('Player joined:', player.name);
-                setOtherPlayers(prev => [...prev, player]);
-            }),
-            
-            onPlayerUpdated((player: SocketPlayer) => {
-                console.log('Player updated:', player.name);
-                setOtherPlayers(prev => 
-                    prev.map(p => p.id === player.id ? player : p)
-                );
-            }),
-            
-            onPlayerLeft((playerId: string) => {
-                console.log('Player left:', playerId);
-                setOtherPlayers(prev => prev.filter(p => p.id !== playerId));
-            })
-        ];
-        
+        let isMounted = true;
+        let cleanupFunctions: (() => void)[] = [];
+
+        const initPlayer = async () => {
+            // Initialize player data with MongoDB persistence
+            const playerData = await getOrCreatePlayerFromMongoDB();
+
+            if (!isMounted) return;
+
+            setCurrentPlayer(playerData);
+            playerIdRef.current = playerData.id;
+
+            // Connect to socket server
+            connectSocket();
+
+            // Set up socket event listeners
+            cleanupFunctions = [
+                onConnect(() => {
+                    console.log('Connected to game server');
+                    setIsConnected(true);
+                    onConnectionStatusChange?.(true);
+                    // Join game when connected
+                    joinGame({
+                        id: playerData.id,
+                        name: playerData.name,
+                        avatarColor: playerData.avatarColor,
+                        x: playerData.x,
+                        y: playerData.y,
+                        isAI: false
+                    });
+                }),
+
+                onDisconnect(() => {
+                    console.log('Disconnected from game server');
+                    setIsConnected(false);
+                    onConnectionStatusChange?.(false);
+                }),
+
+                onPlayersSync((players: SocketPlayer[]) => {
+                    console.log('Received players sync:', players);
+                    // Filter out current player from others
+                    const others = players.filter(p => p.id !== playerData.id);
+                    setOtherPlayers(others);
+                }),
+
+                onPlayerJoined((player: SocketPlayer) => {
+                    console.log('Player joined:', player.name);
+                    setOtherPlayers(prev => [...prev, player]);
+                }),
+
+                onPlayerUpdated((player: SocketPlayer) => {
+                    console.log('Player updated:', player.name);
+                    setOtherPlayers(prev =>
+                        prev.map(p => p.id === player.id ? player : p)
+                    );
+                }),
+
+                onPlayerLeft((playerId: string) => {
+                    console.log('Player left:', playerId);
+                    setOtherPlayers(prev => prev.filter(p => p.id !== playerId));
+                })
+            ];
+        };
+
+        initPlayer();
+
         return () => {
+            isMounted = false;
             // Cleanup
             cleanupFunctions.forEach(cleanup => cleanup());
             if (positionSyncIntervalRef.current) {

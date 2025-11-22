@@ -1,7 +1,10 @@
 // Player management utilities for localStorage persistence
 
+import { savePlayerToMongoDB } from './mongodb-api';
+
 export interface PlayerData {
-    id: string;
+    id: string;           // localStorage UUID (used for Socket.IO)
+    mongodbId?: string;   // MongoDB ObjectId (used for persistence)
     name: string;
     avatarColor: string;
     x: number;
@@ -13,6 +16,7 @@ const PLAYER_NAME_KEY = 'juego_player_name';
 const PLAYER_COLOR_KEY = 'juego_player_color';
 const PLAYER_X_KEY = 'juego_player_x';
 const PLAYER_Y_KEY = 'juego_player_y';
+const MONGODB_PLAYER_ID_KEY = 'juego_mongodb_player_id';
 
 const DEFAULT_WORLD_WIDTH = 2000;
 const DEFAULT_WORLD_HEIGHT = 2000;
@@ -181,4 +185,72 @@ export async function getAllPlayers(): Promise<PlayerData[]> {
         console.error('Failed to fetch players:', error);
     }
     return [];
+}
+
+/**
+ * Get MongoDB player ID from localStorage
+ */
+export function getMongoDBPlayerId(): string | null {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem(MONGODB_PLAYER_ID_KEY);
+}
+
+/**
+ * Set MongoDB player ID in localStorage
+ */
+export function setMongoDBPlayerId(id: string): void {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(MONGODB_PLAYER_ID_KEY, id);
+}
+
+/**
+ * Clear MongoDB player ID from localStorage
+ */
+export function clearMongoDBPlayerId(): void {
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem(MONGODB_PLAYER_ID_KEY);
+}
+
+/**
+ * Get or create player from MongoDB
+ * - If MongoDB ID exists in localStorage, return it
+ * - If not, create a new player in MongoDB and store the ID
+ */
+export async function getOrCreatePlayerFromMongoDB(): Promise<PlayerData> {
+    // First get local player data
+    const localPlayerData = getOrCreatePlayerData();
+
+    // Check if we already have a MongoDB ID
+    const existingMongoDBId = getMongoDBPlayerId();
+
+    if (existingMongoDBId) {
+        // We have a MongoDB ID, return the player data with it
+        return {
+            ...localPlayerData,
+            mongodbId: existingMongoDBId
+        };
+    }
+
+    // No MongoDB ID, create a new player in MongoDB
+    const mongoPlayer = await savePlayerToMongoDB({
+        name: localPlayerData.name,
+        avatarColor: localPlayerData.avatarColor,
+        x: localPlayerData.x,
+        y: localPlayerData.y,
+        isAI: false
+    });
+
+    if (mongoPlayer && mongoPlayer.id) {
+        // Store the MongoDB ID for future use
+        setMongoDBPlayerId(mongoPlayer.id);
+
+        return {
+            ...localPlayerData,
+            mongodbId: mongoPlayer.id
+        };
+    }
+
+    // Failed to create in MongoDB, return without MongoDB ID
+    console.warn('Failed to create player in MongoDB, using localStorage only');
+    return localPlayerData;
 }
