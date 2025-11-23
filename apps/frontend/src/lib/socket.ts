@@ -7,6 +7,7 @@ export interface Player {
     x: number;
     y: number;
     isAI: boolean;
+    mongodbId?: string;  // MongoDB ObjectId for database operations
 }
 
 let socket: Socket | null = null;

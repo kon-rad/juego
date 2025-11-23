@@ -84,6 +84,9 @@ importers:
       next:
         specifier: 16.0.3
         version: 16.0.3(@babel/core@7.28.5)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      pino:
+        specifier: 7.11.0
+        version: 7.11.0
       pixi.js:
         specifier: ^8.14.3
         version: 8.14.3
@@ -96,6 +99,9 @@ importers:
       socket.io-client:
         specifier: ^4.7.5
         version: 4.8.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      thread-stream:
+        specifier: 0.15.2
+        version: 0.15.2
       viem:
         specifier: ~2.39.3
         version: 2.39.3(bufferutil@4.0.9)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@3.25.76)

@@ -13,11 +13,13 @@ const config = getDefaultConfig({
   // Disable Ronin Waypoint (keyless wallet) unless client ID is configured
   // To enable: get a client ID from https://developers.skymavis.com/console/
   // Then set NEXT_PUBLIC_RONIN_CLIENT_ID in your .env.local
-  keylessWalletConfig: process.env.NEXT_PUBLIC_RONIN_CLIENT_ID
+  ...(process.env.NEXT_PUBLIC_RONIN_CLIENT_ID
     ? {
-        clientId: process.env.NEXT_PUBLIC_RONIN_CLIENT_ID,
+        keylessWalletConfig: {
+          clientId: process.env.NEXT_PUBLIC_RONIN_CLIENT_ID,
+        },
       }
-    : { enable: false },
+    : {}),
 });
 
 interface WalletProviderProps {

@@ -34,6 +34,7 @@ export interface NearbyPlayer {
     name: string;
     avatarColor: string;
     distance: number;
+    mongodbId?: string;  // MongoDB ObjectId for chat operations
 }
 
 export interface NearbyTeacher {
@@ -145,7 +146,8 @@ export default function GameCanvas({
                         avatarColor: playerData.avatarColor,
                         x: playerData.x,
                         y: playerData.y,
-                        isAI: false
+                        isAI: false,
+                        mongodbId: playerData.mongodbId
                     });
                 }),
 
@@ -405,7 +407,8 @@ export default function GameCanvas({
                                 id: playerData.id,
                                 name: playerData.name,
                                 avatarColor: playerData.avatarColor,
-                                distance
+                                distance,
+                                mongodbId: playerData.mongodbId
                             });
                         }
                     }
@@ -492,7 +495,8 @@ export default function GameCanvas({
                         avatarColor: currentPlayer.avatarColor,
                         x: newX,
                         y: newY,
-                        isAI: false
+                        isAI: false,
+                        mongodbId: currentPlayer.mongodbId
                     });
                 }
             }, 2000);

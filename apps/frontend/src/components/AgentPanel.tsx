@@ -262,8 +262,8 @@ export default function AgentPanel({
             setAvailableTeachers(teachers);
 
             // Load chat histories from backend if player is logged in
-            if (playerId) {
-                const histories = await getPlayerTeacherChatHistories(playerId);
+            if (mongoDBPlayerId) {
+                const histories = await getPlayerTeacherChatHistories(mongoDBPlayerId);
                 const historyMap = new Map<string, TeacherChatHistory>();
 
                 histories.forEach((h: TeacherChatHistoryResponse) => {
@@ -296,6 +296,9 @@ export default function AgentPanel({
         }
     };
 
+    // Get MongoDB player ID for chat operations
+    const mongoDBPlayerId = playerId ? getMongoDBPlayerId() : null;
+
     // Load messages when a player chat is selected
     useEffect(() => {
         if (activePlayerChat && activePlayerChat.chatId) {
@@ -307,7 +310,7 @@ export default function AgentPanel({
 
     // Listen for real-time chat messages
     useEffect(() => {
-        if (!playerId) return;
+        if (!mongoDBPlayerId) return;
 
         const unsubscribe = onChatMessage((data: ChatMessageEvent) => {
             // Parse date if it's a string
@@ -319,7 +322,7 @@ export default function AgentPanel({
             };
 
             // Only add message if it's for the current player and the active chat
-            if (data.recipientId === playerId && activePlayerChat && data.chatId === activePlayerChat.chatId) {
+            if (data.recipientId === mongoDBPlayerId && activePlayerChat && data.chatId === activePlayerChat.chatId) {
                 setPlayerChatMessages(prev => {
                     // Check if message already exists
                     if (prev.some(m => m.id === message.id)) {
@@ -327,20 +330,20 @@ export default function AgentPanel({
                     }
                     return [...prev, message];
                 });
-            } else if (data.recipientId === playerId) {
+            } else if (data.recipientId === mongoDBPlayerId) {
                 // Update conversations list if message is for a different chat
                 loadConversations();
             }
         });
 
         return unsubscribe;
-    }, [playerId, activePlayerChat]);
+    }, [mongoDBPlayerId, activePlayerChat]);
 
     const loadConversations = async () => {
-        if (!playerId) return;
+        if (!mongoDBPlayerId) return;
         setIsLoadingConversations(true);
         try {
-            const conversations = await getPlayerConversations(playerId);
+            const conversations = await getPlayerConversations(mongoDBPlayerId);
             // Parse dates from strings to Date objects
             const parsedConversations = conversations.map(chat => ({
                 ...chat,
@@ -380,13 +383,13 @@ export default function AgentPanel({
     };
 
     const handleSelectConversation = async (chat: Chat) => {
-        if (!playerId) return;
+        if (!mongoDBPlayerId) return;
         
         const activeChat: ActivePlayerChat = {
             chatId: chat.id,
-            otherPlayerId: chat.otherParticipantId || (chat.participant1Id === playerId ? chat.participant2Id : chat.participant1Id),
-            otherPlayerName: chat.otherParticipantName || (chat.participant1Id === playerId ? chat.participant2Name : chat.participant1Name) || 'Unknown',
-            otherPlayerAvatarColor: chat.otherParticipantAvatarColor || (chat.participant1Id === playerId ? chat.participant2AvatarColor : chat.participant1AvatarColor) || '#4ECDC4'
+            otherPlayerId: chat.otherParticipantId || (chat.participant1Id === mongoDBPlayerId ? chat.participant2Id : chat.participant1Id),
+            otherPlayerName: chat.otherParticipantName || (chat.participant1Id === mongoDBPlayerId ? chat.participant2Name : chat.participant1Name) || 'Unknown',
+            otherPlayerAvatarColor: chat.otherParticipantAvatarColor || (chat.participant1Id === mongoDBPlayerId ? chat.participant2AvatarColor : chat.participant1AvatarColor) || '#4ECDC4'
         };
 
         if (onActivePlayerChatChange) {
@@ -404,10 +407,10 @@ export default function AgentPanel({
         setInputValue('');
 
         // If chatting with a player
-        if (activePlayerChat && playerId) {
+        if (activePlayerChat && mongoDBPlayerId) {
             setIsLoading(true);
             try {
-                const message = await sendChatMessage(activePlayerChat.chatId, playerId, messageText);
+                const message = await sendChatMessage(activePlayerChat.chatId, mongoDBPlayerId, messageText);
                 if (message) {
                     // Parse date if it's a string
                     const parsedMessage = {

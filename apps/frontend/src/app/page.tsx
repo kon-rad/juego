@@ -95,38 +95,44 @@ export default function Home() {
       return;
     }
 
-    // For the nearby player, we need to look up their MongoDB ID
-    // Since we only have their socket ID, we'll need to find them by name/avatar
-    // For now, let's try to find them by creating a lookup
-    // Actually, the best approach is to store MongoDB IDs in socket player data
-    // But for now, let's try to find the player by matching socket ID or name
+    // Use MongoDB ID directly from nearby player if available
+    const otherPlayerMongoId = player.mongodbId;
     
-    try {
-      // Try to find the other player's MongoDB ID
-      // We'll need to search for them by name and avatarColor
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/game/players`);
-      const allPlayers = await response.json();
-      
-      // Find the player by matching name and avatarColor (since socket ID won't match)
-      const otherPlayer = allPlayers.find((p: any) => 
-        p.name === player.name && p.avatarColor === player.avatarColor
-      );
-      
-      if (!otherPlayer) {
-        console.error('Could not find other player in database');
-        return;
+    if (!otherPlayerMongoId) {
+      console.error('Cannot start conversation: Other player MongoDB ID not found. Player may not be synced with database yet.');
+      // Fallback: try to find by name/avatar (less reliable)
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/game/players`);
+        const allPlayers = await response.json();
+        const otherPlayer = allPlayers.find((p: any) => 
+          p.name === player.name && p.avatarColor === player.avatarColor
+        );
+        if (!otherPlayer) {
+          console.error('Could not find other player in database');
+          return;
+        }
+        // Use the found player's MongoDB ID
+        const foundMongoId = otherPlayer.id;
+        await startChatWithMongoId(currentPlayerMongoId, foundMongoId, player);
+      } catch (error) {
+        console.error('Error finding other player:', error);
       }
-      
-      const otherPlayerMongoId = otherPlayer.id;
-      
+      return;
+    }
+    
+    await startChatWithMongoId(currentPlayerMongoId, otherPlayerMongoId, player);
+  };
+
+  const startChatWithMongoId = async (currentPlayerMongoId: string, otherPlayerMongoId: string, player: NearbyPlayer) => {
+    try {
       // Get or create chat with the nearby player using MongoDB IDs
       const chat = await getOrCreateChat(currentPlayerMongoId, otherPlayerMongoId);
       
       if (chat) {
         // Determine which participant is the other player
-        const otherPlayerId = chat.participant1Id === playerId ? chat.participant2Id : chat.participant1Id;
-        const otherPlayerName = chat.participant1Id === playerId ? chat.participant2Name : chat.participant1Name;
-        const otherPlayerAvatarColor = chat.participant1Id === playerId ? chat.participant2AvatarColor : chat.participant1AvatarColor;
+        const otherPlayerId = chat.participant1Id === currentPlayerMongoId ? chat.participant2Id : chat.participant1Id;
+        const otherPlayerName = chat.participant1Id === currentPlayerMongoId ? chat.participant2Name : chat.participant1Name;
+        const otherPlayerAvatarColor = chat.participant1Id === currentPlayerMongoId ? chat.participant2AvatarColor : chat.participant1AvatarColor;
 
         const activeChat: ActivePlayerChat = {
           chatId: chat.id,

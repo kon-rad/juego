@@ -144,8 +144,8 @@ export async function startVoiceCall(
         await vapi.start({
             name: tokenData.assistantConfig.name,
             firstMessage: tokenData.assistantConfig.firstMessage,
-            model: tokenData.assistantConfig.model,
-            voice: tokenData.assistantConfig.voice
+            model: tokenData.assistantConfig.model as any,
+            voice: tokenData.assistantConfig.voice as any
         })
 
         return vapi
