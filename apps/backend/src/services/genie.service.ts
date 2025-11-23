@@ -323,7 +323,7 @@ Make it engaging and immersive. The teacher should feel authentic and knowledgea
         playerId?: string,
         playerPosition?: PlayerPosition
     ): Promise<{ teacherInfo: TeacherInfo; teacher?: SummonedTeacher }> {
-        const teachersCollection = await getTeachersCollection() as Collection<Teacher>;
+        const teachersCollection = await getTeachersCollection() as unknown as Collection<Teacher>;
         const existingTeacher = await this.findTeacherByTopic(topic, teachersCollection);
 
         if (existingTeacher) {
@@ -397,7 +397,7 @@ Walk over to them to begin your learning journey! They will teach you about ${to
         topic: string,
         teachersCollection?: Collection<Teacher>
     ): Promise<WithId<Teacher> | null> {
-        const collection = teachersCollection ?? await getTeachersCollection() as Collection<Teacher>;
+        const collection = teachersCollection ?? await getTeachersCollection() as unknown as Collection<Teacher>;
         const sanitizedTopic = this.escapeRegex(topic);
 
         return collection.findOne({

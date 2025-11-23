@@ -18,10 +18,10 @@ const DEPLOYED_ADDRESSES_PATH = path.resolve(
 );
 
 export class BlockchainService {
-  private provider: ethers.JsonRpcProvider;
-  private learnTokenContract: ethers.Contract;
-  private badgeNFTContract: ethers.Contract;
-  private adminWallet: ethers.Wallet;
+  private provider!: ethers.JsonRpcProvider;
+  private learnTokenContract!: ethers.Contract;
+  private badgeNFTContract!: ethers.Contract;
+  private adminWallet!: ethers.Wallet;
 
   private initialized: boolean = false;
 

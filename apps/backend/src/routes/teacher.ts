@@ -356,7 +356,7 @@ IMPORTANT:
                         try {
                             evaluationResult = JSON.parse(toolCall.function.arguments)
                             // Validate and clamp score to 1-10 range
-                            if (evaluationResult.score !== undefined) {
+                            if (evaluationResult && evaluationResult.score !== undefined) {
                                 evaluationResult.score = Math.max(1, Math.min(10, Math.round(evaluationResult.score)))
                             }
                             console.log('Evaluation result:', evaluationResult)
@@ -386,7 +386,7 @@ IMPORTANT:
                     try {
                         evaluationResult = JSON.parse(jsonMatch[1])
                         // Validate and clamp score to 1-10 range
-                        if (evaluationResult.score !== undefined) {
+                        if (evaluationResult && evaluationResult.score !== undefined) {
                             evaluationResult.score = Math.max(1, Math.min(10, Math.round(evaluationResult.score)))
                         }
                     } catch (e) {

@@ -7,10 +7,21 @@ const nextConfig: NextConfig = {
   // Empty turbopack config to silence the warning about having webpack config
   turbopack: {},
 
+  // Exclude problematic server-side modules in SSR
+  serverExternalPackages: ['pino', 'pino-pretty', 'thread-stream'],
+
   // Fix for WalletConnect packages that have optional dependencies not available in browser
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     config.resolve.fallback = { fs: false, net: false, tls: false };
-    config.externals.push('pino-pretty', 'lokijs', 'encoding');
+    config.externals.push(
+      'pino-pretty',
+      'lokijs',
+      'encoding',
+      'pino',
+      'thread-stream',
+      'tap',
+      'why-is-node-running'
+    );
 
     // Ignore optional wallet connector dependencies that aren't needed
     config.resolve.alias = {
