@@ -6,7 +6,7 @@ const genie = new Hono()
 genie.post('/chat', async (c) => {
     try {
         const body = await c.req.json()
-        const { message, learningTopic, conversationHistory } = body
+        const { message, learningTopic, conversationHistory, playerId, playerPosition } = body
 
         if (!message) {
             return c.json({ error: 'Message is required' }, 400)
@@ -15,7 +15,9 @@ genie.post('/chat', async (c) => {
         const response = await genieService.chat(
             message,
             learningTopic || null,
-            conversationHistory || []
+            conversationHistory || [],
+            playerId,
+            playerPosition
         )
 
         return c.json(response)

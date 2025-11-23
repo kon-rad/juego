@@ -157,7 +157,12 @@ export default function Home() {
   };
 
   const handleTeacherCreated = (teacher: Teacher) => {
-    setTeachers(prev => [...prev, teacher]);
+    setTeachers(prev => {
+      if (prev.find(t => t.id === teacher.id)) {
+        return prev;
+      }
+      return [...prev, teacher];
+    });
     const newLog: AgentLog = {
       id: Math.random().toString(36).substring(7),
       timestamp: new Date(),

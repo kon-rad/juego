@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Brain, MessageSquare, Settings, Phone, Send, ChevronLeft } from 'lucide-react';
 import AICharacterList from './AICharacterList';
 import GenieSvg from './GenieSvg';
-import { createTeacher, checkTeacherPosition, Teacher, chatWithTeacher, getPlayerConversations, getChatMessages, sendChatMessage, getTeachers, getPlayerTeacherChatHistories, saveTeacherChatHistory, getPlayerProfile, updatePlayerProfile, type Chat, type ChatMessage as PlayerChatMessage, type TeacherChatHistoryResponse } from '@/lib/mongodb-api';
+import { Teacher, chatWithTeacher, getPlayerConversations, getChatMessages, sendChatMessage, getTeachers, getPlayerTeacherChatHistories, saveTeacherChatHistory, getPlayerProfile, updatePlayerProfile, type Chat, type ChatMessage as PlayerChatMessage, type TeacherChatHistoryResponse } from '@/lib/mongodb-api';
 import { onChatMessage, type ChatMessageEvent } from '@/lib/socket';
 import { getMongoDBPlayerId } from '@/lib/player';
 
@@ -86,8 +86,6 @@ export default function AgentPanel({
     const [isLoading, setIsLoading] = useState(false);
     const [currentTeacherId, setCurrentTeacherId] = useState<string | null>(null);
     const [learningTopic, setLearningTopic] = useState<string | null>(null);
-    const [teacherInfo, setTeacherInfo] = useState<{ name: string; systemPrompt: string; personality: string } | null>(null);
-    const [teacherCreated, setTeacherCreated] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Teacher chat history storage (per teacher)
@@ -388,82 +386,6 @@ export default function AgentPanel({
         }
     };
 
-    // Create teacher when learning topic is identified
-    useEffect(() => {
-        const createTeacherForTopic = async () => {
-            // Early return if conditions aren't met - don't log repeatedly
-            if (!learningTopic || teacherCreated || !playerId || !playerPosition) {
-                return;
-            }
-            
-            console.log('Creating teacher for topic:', learningTopic, 'with teacherInfo:', teacherInfo);
-
-            // Wait a bit for teacherInfo if it's expected but not yet available
-            // (teacherInfo is generated asynchronously by the genie)
-            if (!teacherInfo) {
-                // Wait up to 2 seconds for teacherInfo
-                await new Promise(resolve => setTimeout(resolve, 500));
-                // If still no teacherInfo after waiting, proceed without it (will use defaults)
-            }
-
-            try {
-                // Check if position is available (100px radius)
-                const positionCheck = await checkTeacherPosition(playerPosition.x + 60, playerPosition.y);
-
-                if (!positionCheck.available) {
-                    const nearbyMsg: ChatMessage = {
-                        id: `system-${Date.now()}`,
-                        role: 'genie',
-                        content: `I sense another teacher nearby (${positionCheck.nearbyTeacher?.name} - ${positionCheck.nearbyTeacher?.topic}). Move to a different location and summon me again to create a new teacher!`,
-                        timestamp: new Date(),
-                        speakerName: 'Learning Genie'
-                    };
-                    setChatMessages(prev => [...prev, nearbyMsg]);
-                    return;
-                }
-
-                // Create the teacher with generated info if available
-                const teacher = await createTeacher(
-                    learningTopic,
-                    playerPosition.x + 60,
-                    playerPosition.y,
-                    playerId,
-                    teacherInfo || undefined
-                );
-
-                if (teacher) {
-                    console.log('Teacher created successfully:', teacher);
-                    setTeacherCreated(true);
-                    onTeacherCreated?.(teacher);
-
-                    const successMsg: ChatMessage = {
-                        id: `system-${Date.now()}`,
-                        role: 'genie',
-                        content: `I have summoned ${teacher.name} to guide you in ${learningTopic}! They have been placed on the map near you. Approach them anytime to start learning. The teacher will now initiate a conversation with you!`,
-                        timestamp: new Date(),
-                        speakerName: 'Learning Genie'
-                    };
-                    setChatMessages(prev => [...prev, successMsg]);
-
-                    // Teacher introduces themselves
-                    setTimeout(() => {
-                        const teacherIntro: ChatMessage = {
-                            id: `teacher-intro-${Date.now()}`,
-                            role: 'teacher',
-                            content: `Hello! I'm your ${learningTopic} teacher. I'm here to help you learn, ask questions, and test your knowledge. What would you like to start with?`,
-                            timestamp: new Date(),
-                            speakerName: teacher.name
-                        };
-                        setChatMessages(prev => [...prev, teacherIntro]);
-                    }, 1000);
-                }
-            } catch (error) {
-                console.error('Error creating teacher:', error);
-            }
-        };
-
-        createTeacherForTopic();
-    }, [learningTopic, teacherInfo, teacherCreated, playerId, playerPosition, onTeacherCreated]);
 
     const handleSendMessage = async () => {
         if (!inputValue.trim() || isLoading) return;
@@ -590,7 +512,9 @@ export default function AgentPanel({
                         conversationHistory: chatMessages.map(m => ({
                             role: m.role === 'user' ? 'user' : 'assistant',
                             content: m.content
-                        }))
+                        })),
+                        playerId,
+                        playerPosition
                     })
                 });
 
@@ -601,10 +525,15 @@ export default function AgentPanel({
                     setLearningTopic(data.learningTopic);
                 }
 
-                // Store teacher info if provided
-                if (data.teacherInfo) {
-                    console.log('Received teacher info from genie:', data.teacherInfo);
-                    setTeacherInfo(data.teacherInfo);
+                if (data.teacher) {
+                    console.log('Genie returned summoned teacher:', data.teacher);
+                    onTeacherCreated?.(data.teacher);
+                    setAvailableTeachers(prev => {
+                        if (prev.find(t => t.id === data.teacher.id)) {
+                            return prev;
+                        }
+                        return [...prev, data.teacher];
+                    });
                 }
 
                 const genieMessage: ChatMessage = {

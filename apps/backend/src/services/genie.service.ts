@@ -1,8 +1,31 @@
 // GenieService - AI Learning Teacher that creates personalized quizzes and lessons
+import { getGameWorldsCollection, getTeachersCollection } from '../lib/mongodb.js'
+import type { Teacher } from '../lib/mongodb.js'
+import type { Collection, WithId } from 'mongodb'
+
+const TEACHER_RADIUS = 100;
+const DEFAULT_WORLD_WIDTH = 4000;
+const DEFAULT_WORLD_HEIGHT = 4000;
+const TEACHER_SPAWN_OFFSETS = [
+    { x: 80, y: 0 },
+    { x: -80, y: 0 },
+    { x: 0, y: 80 },
+    { x: 0, y: -80 },
+    { x: 80, y: 80 },
+    { x: -80, y: 80 },
+    { x: 80, y: -80 },
+    { x: -80, y: -80 },
+    { x: 0, y: 0 }
+];
 
 export interface ConversationMessage {
     role: 'user' | 'assistant';
     content: string;
+}
+
+export interface PlayerPosition {
+    x: number;
+    y: number;
 }
 
 export interface TeacherInfo {
@@ -11,10 +34,24 @@ export interface TeacherInfo {
     personality: string;
 }
 
+export interface SummonedTeacher {
+    id: string;
+    topic: string;
+    name: string;
+    systemPrompt: string;
+    personality: string;
+    x: number;
+    y: number;
+    avatarColor: string;
+    worldId: string;
+    createdBy: string;
+}
+
 export interface GenieResponse {
     response: string;
     learningTopic?: string;
     teacherInfo?: TeacherInfo;
+    teacher?: SummonedTeacher;
 }
 
 export class GenieService {
@@ -37,7 +74,9 @@ export class GenieService {
     async chat(
         userMessage: string,
         learningTopic: string | null,
-        conversationHistory: ConversationMessage[]
+        conversationHistory: ConversationMessage[],
+        playerId?: string,
+        playerPosition?: PlayerPosition
     ): Promise<GenieResponse> {
         // If no topic yet, try to extract from the user's message first
         let extractedTopic = learningTopic;
@@ -45,25 +84,26 @@ export class GenieService {
             extractedTopic = this.extractLearningTopic(userMessage);
         }
 
-        // If we found a topic and don't have a teacher yet, generate teacher info immediately
-        let teacherInfo: TeacherInfo | undefined;
+        // If we found a topic and don't have a teacher yet, summon or reuse one immediately
         if (extractedTopic && !learningTopic) {
-            // Generate teacher info first so we can include it in the response
-            teacherInfo = await this.generateTeacherInfo(extractedTopic);
+            const { teacherInfo, teacher } = await this.ensureTeacherSummoned(
+                extractedTopic,
+                playerId,
+                playerPosition
+            );
 
-            // Return a direct response about the spawned teacher
-            const responseContent = `Excellent choice! I sense your desire to learn about ${extractedTopic}.
-
-I have summoned **${teacherInfo.name}** to be your guide! They are now waiting for you on the map nearby.
-
-${teacherInfo.personality}
-
-Walk over to them to begin your learning journey! They will teach you about ${extractedTopic}, ask you questions to test your understanding, and reward you with tokens and NFT badges when you demonstrate mastery!`;
+            const responseContent = this.buildSummonResponse(
+                extractedTopic,
+                teacherInfo,
+                teacher,
+                playerPosition
+            );
 
             return {
                 response: responseContent,
                 learningTopic: extractedTopic,
-                teacherInfo
+                teacherInfo,
+                teacher
             };
         }
 
@@ -276,6 +316,222 @@ Make it engaging and immersive. The teacher should feel authentic and knowledgea
                 personality: `An expert ${topic} teacher who is passionate about helping students learn. Patient, encouraging, and uses practical examples.`
             };
         }
+    }
+
+    private async ensureTeacherSummoned(
+        topic: string,
+        playerId?: string,
+        playerPosition?: PlayerPosition
+    ): Promise<{ teacherInfo: TeacherInfo; teacher?: SummonedTeacher }> {
+        const teachersCollection = await getTeachersCollection() as Collection<Teacher>;
+        const existingTeacher = await this.findTeacherByTopic(topic, teachersCollection);
+
+        if (existingTeacher) {
+            return {
+                teacherInfo: {
+                    name: existingTeacher.name,
+                    systemPrompt: existingTeacher.systemPrompt,
+                    personality: existingTeacher.personality
+                },
+                teacher: this.toSummonedTeacher(existingTeacher)
+            };
+        }
+
+        const teacherInfo = await this.generateTeacherInfo(topic);
+
+        if (playerId && playerPosition) {
+            try {
+                const createdTeacher = await this.createTeacherRecord(
+                    topic,
+                    teacherInfo,
+                    playerId,
+                    playerPosition,
+                    teachersCollection
+                );
+
+                if (createdTeacher) {
+                    return {
+                        teacherInfo,
+                        teacher: createdTeacher
+                    };
+                }
+
+                console.warn(`Unable to place teacher ${teacherInfo.name}; no valid positions available.`);
+            } catch (error) {
+                console.error('Failed to create teacher document:', error);
+            }
+        } else {
+            console.warn('Missing playerId or playerPosition; cannot anchor teacher in the world.');
+        }
+
+        return { teacherInfo };
+    }
+
+    private buildSummonResponse(
+        topic: string,
+        teacherInfo: TeacherInfo,
+        teacher?: SummonedTeacher,
+        playerPosition?: PlayerPosition
+    ): string {
+        if (teacher) {
+            const coords = `(${Math.round(teacher.x)}, ${Math.round(teacher.y)})`;
+            const proximityHint = playerPosition
+                ? `They are near your current location—head towards the glowing marker to reach them.`
+                : `They will appear on your map with a golden glow.`;
+
+            return `Excellent choice! I sense your desire to learn about ${topic}.
+
+I have summoned **${teacher.name}** to be your guide! ${proximityHint}
+
+Location: ${coords}
+
+${teacherInfo.personality}
+
+Walk over to them to begin your learning journey! They will teach you about ${topic}, ask you questions to test your understanding, and reward you with tokens and NFT badges when you demonstrate mastery.`;
+        }
+
+        return `Excellent choice! I am preparing **${teacherInfo.name}** to teach you about ${topic}, but I need a clear sense of your position to place them in the world. Take a few steps in the world and ask me again so I can anchor them nearby.`;
+    }
+
+    private async findTeacherByTopic(
+        topic: string,
+        teachersCollection?: Collection<Teacher>
+    ): Promise<WithId<Teacher> | null> {
+        const collection = teachersCollection ?? await getTeachersCollection() as Collection<Teacher>;
+        const sanitizedTopic = this.escapeRegex(topic);
+
+        return collection.findOne({
+            topic: { $regex: new RegExp(`^${sanitizedTopic}$`, 'i') }
+        }) as Promise<WithId<Teacher> | null>;
+    }
+
+    private async createTeacherRecord(
+        topic: string,
+        teacherInfo: TeacherInfo,
+        playerId: string,
+        playerPosition: PlayerPosition,
+        teachersCollection: Collection<Teacher>
+    ): Promise<SummonedTeacher | null> {
+        const world = await this.ensureDefaultWorld();
+        const worldWidth = world?.width ?? DEFAULT_WORLD_WIDTH;
+        const worldHeight = world?.height ?? DEFAULT_WORLD_HEIGHT;
+
+        const candidatePositions = this.getCandidatePositions(playerPosition, worldWidth, worldHeight);
+
+        for (const candidate of candidatePositions) {
+            const available = await this.isPositionAvailable(teachersCollection, candidate.x, candidate.y);
+            if (!available) {
+                continue;
+            }
+
+            const now = new Date();
+            const teacherDoc: Teacher = {
+                worldId: world?._id?.toString?.() ?? 'default',
+                topic,
+                name: teacherInfo.name,
+                systemPrompt: teacherInfo.systemPrompt,
+                personality: teacherInfo.personality,
+                x: candidate.x,
+                y: candidate.y,
+                avatarColor: '#FFD700',
+                createdBy: playerId,
+                createdAt: now,
+                updatedAt: now
+            };
+
+            const result = await teachersCollection.insertOne(teacherDoc);
+            return this.toSummonedTeacher({
+                ...teacherDoc,
+                _id: result.insertedId
+            } as WithId<Teacher>);
+        }
+
+        return null;
+    }
+
+    private async ensureDefaultWorld() {
+        const worldsCollection = await getGameWorldsCollection();
+        let world = await worldsCollection.findOne({ name: 'default' });
+
+        if (!world) {
+            const now = new Date();
+            const insertResult = await worldsCollection.insertOne({
+                name: 'default',
+                width: DEFAULT_WORLD_WIDTH,
+                height: DEFAULT_WORLD_HEIGHT,
+                createdAt: now,
+                updatedAt: now
+            });
+            world = await worldsCollection.findOne({ _id: insertResult.insertedId });
+        }
+
+        return world;
+    }
+
+    private getCandidatePositions(position: PlayerPosition, worldWidth: number, worldHeight: number): PlayerPosition[] {
+        const positions = TEACHER_SPAWN_OFFSETS.map(offset => ({
+            x: this.clampToBounds(position.x + offset.x, worldWidth),
+            y: this.clampToBounds(position.y + offset.y, worldHeight)
+        }));
+
+        // Add a few random fallbacks in case the nearby spots are occupied
+        for (let i = 0; i < 5; i++) {
+            positions.push({
+                x: this.clampToBounds(Math.random() * worldWidth, worldWidth),
+                y: this.clampToBounds(Math.random() * worldHeight, worldHeight)
+            });
+        }
+
+        return positions;
+    }
+
+    private clampToBounds(value: number, max: number): number {
+        const margin = 40;
+        if (!Number.isFinite(value)) return margin;
+        return Math.min(Math.max(value, margin), Math.max(margin, max - margin));
+    }
+
+    private toSummonedTeacher(doc: WithId<Teacher>): SummonedTeacher {
+        return {
+            id: doc._id.toString(),
+            topic: doc.topic,
+            name: doc.name,
+            systemPrompt: doc.systemPrompt,
+            personality: doc.personality,
+            x: doc.x,
+            y: doc.y,
+            avatarColor: doc.avatarColor,
+            worldId: doc.worldId,
+            createdBy: doc.createdBy
+        };
+    }
+
+    private escapeRegex(value: string): string {
+        return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    private async isPositionAvailable(
+        teachersCollection: Collection<Teacher>,
+        x: number,
+        y: number
+    ): Promise<boolean> {
+        const nearbyTeacher = await teachersCollection.findOne({
+            $expr: {
+                $lte: [
+                    {
+                        $sqrt: {
+                            $add: [
+                                { $pow: [{ $subtract: ['$x', x] }, 2] },
+                                { $pow: [{ $subtract: ['$y', y] }, 2] }
+                            ]
+                        }
+                    },
+                    TEACHER_RADIUS
+                ]
+            }
+        });
+
+        return !nearbyTeacher;
     }
 }
 

@@ -317,6 +317,9 @@ export default function GameCanvas({
             world.addChild(playerLabel);
             playerLabelsRef.current[currentPlayer.id] = playerLabel;
 
+            // Share initial player position with parent consumers (needed for genie placement)
+            onPlayerPositionChange?.({ x: player.x, y: player.y });
+
             // Center camera on player initially
             const centerCameraOnPlayer = () => {
                 world.pivot.x = player.x;
