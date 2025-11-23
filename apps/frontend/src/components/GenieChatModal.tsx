@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, Send, Sparkles, GraduationCap } from 'lucide-react';
 import GenieSvg from './GenieSvg';
+import { createTeacher, checkTeacherPosition, Teacher } from '@/lib/mongodb-api';
 
 interface Message {
     id: string;
@@ -15,17 +16,21 @@ interface GenieChatModalProps {
     isOpen: boolean;
     onClose: () => void;
     playerPosition: { x: number; y: number };
+    playerId?: string;
+    onTeacherCreated?: (teacher: Teacher) => void;
 }
 
 const GENIE_TEACHER_INTRO = `Greetings, seeker of knowledge! I am the Learning Genie. Tell me, what subject or skill do you wish to master today? I shall summon the perfect guide to teach you, quiz you, and help you grow wiser!
 
 You can ask me about anything: programming, mathematics, history, languages, science, art, or any other topic that sparks your curiosity.`;
 
-export default function GenieChatModal({ isOpen, onClose, playerPosition }: GenieChatModalProps) {
+export default function GenieChatModal({ isOpen, onClose, playerPosition, playerId, onTeacherCreated }: GenieChatModalProps) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [inputValue, setInputValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [learningTopic, setLearningTopic] = useState<string | null>(null);
+    const [teacherCreated, setTeacherCreated] = useState(false);
+    const [creatingTeacher, setCreatingTeacher] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Initialize with genie intro message
@@ -44,6 +49,67 @@ export default function GenieChatModal({ isOpen, onClose, playerPosition }: Geni
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
+
+    // Create teacher when learning topic is set
+    useEffect(() => {
+        const createTeacherForTopic = async () => {
+            if (!learningTopic || teacherCreated || creatingTeacher || !playerId) return;
+
+            setCreatingTeacher(true);
+
+            try {
+                // Check if position is available (100px radius)
+                const positionCheck = await checkTeacherPosition(playerPosition.x + 60, playerPosition.y);
+
+                if (!positionCheck.available) {
+                    const nearbyMsg: Message = {
+                        id: `system-${Date.now()}`,
+                        role: 'genie',
+                        content: `I sense another teacher nearby (${positionCheck.nearbyTeacher?.name} - ${positionCheck.nearbyTeacher?.topic}). Move to a different location and try again to summon a new teacher!`,
+                        timestamp: new Date()
+                    };
+                    setMessages(prev => [...prev, nearbyMsg]);
+                    setCreatingTeacher(false);
+                    return;
+                }
+
+                // Create the teacher at position next to player
+                const teacher = await createTeacher(
+                    learningTopic,
+                    playerPosition.x + 60,
+                    playerPosition.y,
+                    playerId
+                );
+
+                if (teacher) {
+                    setTeacherCreated(true);
+                    onTeacherCreated?.(teacher);
+
+                    const successMsg: Message = {
+                        id: `system-${Date.now()}`,
+                        role: 'genie',
+                        content: `I have summoned ${teacher.name} to guide you in ${learningTopic}! They will remain here permanently to help anyone who seeks knowledge. Approach them anytime to continue your learning journey. You can close this window and find the teacher on the map!`,
+                        timestamp: new Date()
+                    };
+                    setMessages(prev => [...prev, successMsg]);
+                } else {
+                    const errorMsg: Message = {
+                        id: `error-${Date.now()}`,
+                        role: 'genie',
+                        content: 'My magic faltered. I could not summon the teacher. Please try again.',
+                        timestamp: new Date()
+                    };
+                    setMessages(prev => [...prev, errorMsg]);
+                }
+            } catch (error) {
+                console.error('Error creating teacher:', error);
+            } finally {
+                setCreatingTeacher(false);
+            }
+        };
+
+        createTeacherForTopic();
+    }, [learningTopic, teacherCreated, creatingTeacher, playerId, playerPosition, onTeacherCreated]);
 
     const handleSendMessage = async () => {
         if (!inputValue.trim() || isLoading) return;
@@ -117,6 +183,8 @@ export default function GenieChatModal({ isOpen, onClose, playerPosition }: Geni
             timestamp: new Date()
         }]);
         setLearningTopic(null);
+        setTeacherCreated(false);
+        setCreatingTeacher(false);
     };
 
     if (!isOpen) return null;

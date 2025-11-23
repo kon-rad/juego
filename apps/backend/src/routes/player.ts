@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
-import { getPlayersCollection, ObjectId, PlayerProfile } from '../lib/mongodb.js'
+import { getPlayersCollection, ObjectId } from '../lib/mongodb.js'
+import type { PlayerProfile } from '../lib/mongodb.js'
 
 const player = new Hono()
 

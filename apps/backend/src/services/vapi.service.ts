@@ -1,5 +1,6 @@
 import { VapiClient } from '@vapi-ai/server-sdk'
-import { getAICharactersCollection, getPlayersCollection, getVapiCallsCollection, ObjectId, VapiCall } from '../lib/mongodb.js'
+import { getAICharactersCollection, getPlayersCollection, getVapiCallsCollection, ObjectId } from '../lib/mongodb.js'
+import type { VapiCall } from '../lib/mongodb.js'
 
 // Initialize Vapi client
 const vapiApiKey = process.env.VAPI_API_KEY || ''
@@ -111,7 +112,7 @@ export async function initiateCall(
         // Store call record in MongoDB
         const callsCollection = await getVapiCallsCollection()
         const callRecord: VapiCall = {
-            callId: call.id,
+            callId: (call as any).id,
             characterId,
             userId,
             status: 'initiating',
@@ -125,7 +126,7 @@ export async function initiateCall(
 
         return {
             success: true,
-            callId: call.id,
+            callId: (call as any).id,
             status: 'initiating'
         }
     } catch (error) {

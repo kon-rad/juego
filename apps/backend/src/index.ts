@@ -9,6 +9,7 @@ import { aiCharacter } from './routes/ai-character.js'
 import { player } from './routes/player.js'
 import { vapi } from './routes/vapi.js'
 import { genie } from './routes/genie.js'
+import { teacher } from './routes/teacher.js'
 
 const app = new Hono()
 
@@ -20,6 +21,7 @@ app.route('/api/ai-character', aiCharacter)
 app.route('/api/player', player)
 app.route('/api/vapi', vapi)
 app.route('/api/genie', genie)
+app.route('/api/teacher', teacher)
 
 app.get('/', (c) => {
   return c.text('Juego Backend API')

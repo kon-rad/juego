@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
-import { getAICharactersCollection, ObjectId, AICharacter } from '../lib/mongodb.js'
+import { getAICharactersCollection, ObjectId } from '../lib/mongodb.js'
+import type { AICharacter } from '../lib/mongodb.js'
 
 const aiCharacter = new Hono()
 

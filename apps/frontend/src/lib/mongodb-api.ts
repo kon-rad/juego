@@ -288,3 +288,95 @@ export async function addPlayerInterest(playerId: string, interest: string): Pro
         return null;
     }
 }
+
+// ============== Teacher API Functions ==============
+
+export interface Teacher {
+    id: string;
+    _id?: string;
+    worldId: string;
+    topic: string;
+    name: string;
+    systemPrompt: string;
+    personality: string;
+    x: number;
+    y: number;
+    avatarColor: string;
+    createdBy: string;
+    createdAt?: Date;
+    updatedAt?: Date;
+}
+
+/**
+ * Get all teachers in the world
+ */
+export async function getTeachers(): Promise<Teacher[]> {
+    try {
+        const response = await fetch(`${API_URL}/api/teacher`);
+
+        if (!response.ok) {
+            console.error('Failed to get teachers:', response.statusText);
+            return [];
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error getting teachers:', error);
+        return [];
+    }
+}
+
+/**
+ * Check if a position is available for a new teacher (100px radius)
+ */
+export async function checkTeacherPosition(x: number, y: number): Promise<{
+    available: boolean;
+    nearbyTeacher: { id: string; name: string; topic: string; distance: number } | null;
+}> {
+    try {
+        const response = await fetch(`${API_URL}/api/teacher/check-position`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ x, y })
+        });
+
+        if (!response.ok) {
+            console.error('Failed to check teacher position:', response.statusText);
+            return { available: false, nearbyTeacher: null };
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error checking teacher position:', error);
+        return { available: false, nearbyTeacher: null };
+    }
+}
+
+/**
+ * Create a new teacher at a position
+ */
+export async function createTeacher(
+    topic: string,
+    x: number,
+    y: number,
+    createdBy: string
+): Promise<Teacher | null> {
+    try {
+        const response = await fetch(`${API_URL}/api/teacher`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic, x, y, createdBy })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            console.error('Failed to create teacher:', error);
+            return null;
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error creating teacher:', error);
+        return null;
+    }
+}

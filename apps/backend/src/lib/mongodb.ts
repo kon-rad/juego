@@ -58,6 +58,11 @@ export async function getVapiCallsCollection(): Promise<Collection> {
   return database.collection('vapiCalls')
 }
 
+export async function getTeachersCollection(): Promise<Collection> {
+  const database = await getDb()
+  return database.collection('teachers')
+}
+
 // Type definitions for AI Characters and Players
 export interface AICharacter {
   _id?: ObjectId
@@ -100,6 +105,21 @@ export interface VapiCall {
   startedAt: Date
   endedAt?: Date
   metadata?: Record<string, any>
+}
+
+export interface Teacher {
+  _id?: ObjectId
+  worldId: string
+  topic: string
+  name: string
+  systemPrompt: string
+  personality: string
+  x: number
+  y: number
+  avatarColor: string
+  createdBy: string  // Player ID who created this teacher
+  createdAt: Date
+  updatedAt: Date
 }
 
 // Export ObjectId for use in routes

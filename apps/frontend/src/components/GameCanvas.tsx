@@ -9,7 +9,9 @@ import {
 } from '@/lib/player';
 import {
     updatePlayerPositionInMongoDB,
-    getOrCreateWorld
+    getOrCreateWorld,
+    getTeachers,
+    Teacher
 } from '@/lib/mongodb-api';
 import {
     connectSocket,
@@ -32,15 +34,27 @@ export interface NearbyPlayer {
     distance: number;
 }
 
+export interface NearbyTeacher {
+    id: string;
+    name: string;
+    topic: string;
+    x: number;
+    y: number;
+    distance: number;
+}
+
 interface GameCanvasProps {
     onAgentAction?: (action: any) => void;
     onPlayerPositionChange?: (position: { x: number; y: number }) => void;
     onConnectionStatusChange?: (isConnected: boolean) => void;
     onNearbyPlayersChange?: (players: NearbyPlayer[]) => void;
     onPlayerCountChange?: (count: number) => void;
+    onPlayerIdChange?: (playerId: string) => void;
+    onNearbyTeachersChange?: (teachers: NearbyTeacher[]) => void;
     autoMode?: boolean;
     proximityThreshold?: number;
     isGenieVisible?: boolean;
+    teachers?: Teacher[];
 }
 
 export default function GameCanvas({
@@ -49,9 +63,12 @@ export default function GameCanvas({
     onConnectionStatusChange,
     onNearbyPlayersChange,
     onPlayerCountChange,
+    onPlayerIdChange,
+    onNearbyTeachersChange,
     autoMode = true,
     proximityThreshold = 150,
-    isGenieVisible = false
+    isGenieVisible = false,
+    teachers = []
 }: GameCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<Application | null>(null);
@@ -63,8 +80,13 @@ export default function GameCanvas({
     const playerLabelRef = useRef<Text | null>(null);
     const genieGraphicsRef = useRef<Graphics | null>(null);
     const genieLabelRef = useRef<Text | null>(null);
-    
+    const teacherGraphicsRef = useRef<{ [teacherId: string]: Graphics }>({});
+    const teacherLabelsRef = useRef<{ [teacherId: string]: Text }>({});
+    const teachersRef = useRef<Teacher[]>([]);
+    const lastNearbyTeachersRef = useRef<string>('');
+
     const [currentPlayer, setCurrentPlayer] = useState<PlayerData | null>(null);
+    const [loadedTeachers, setLoadedTeachers] = useState<Teacher[]>([]);
     const [otherPlayers, setOtherPlayers] = useState<SocketPlayer[]>([]);
     const [isConnected, setIsConnected] = useState(false);
 
@@ -97,6 +119,12 @@ export default function GameCanvas({
 
             setCurrentPlayer(playerData);
             playerIdRef.current = playerData.id;
+            onPlayerIdChange?.(playerData.id);
+
+            // Load teachers from database
+            const dbTeachers = await getTeachers();
+            setLoadedTeachers(dbTeachers);
+            teachersRef.current = dbTeachers;
 
             // Connect to socket server
             connectSocket();
@@ -659,6 +687,83 @@ export default function GameCanvas({
             }
         }
     }, [isGenieVisible, currentPlayer]);
+
+    // Render teachers on the map and check proximity
+    useEffect(() => {
+        const world = worldRef.current;
+        const player = playerRef.current;
+
+        if (!world || !player) return;
+
+        // Combine loaded teachers with newly created teachers from props
+        const allTeachers = [...loadedTeachers, ...teachers.filter(t =>
+            !loadedTeachers.find(lt => lt.id === t.id)
+        )];
+        teachersRef.current = allTeachers;
+
+        // Track nearby teachers
+        const nearbyTeachers: NearbyTeacher[] = [];
+
+        // Render each teacher
+        allTeachers.forEach(teacher => {
+            if (!teacherGraphicsRef.current[teacher.id]) {
+                // Create teacher graphics - gold circle with glow
+                const teacherGfx = new Graphics();
+                teacherGfx.circle(0, 0, 25);
+                teacherGfx.fill(0xFFD700); // Gold color
+
+                // Add glow
+                const teacherGlow = new Graphics();
+                teacherGlow.circle(0, 0, 30);
+                teacherGlow.fill({ color: 0xFFA500, alpha: 0.3 });
+                teacherGlow.x = teacher.x;
+                teacherGlow.y = teacher.y;
+                world.addChild(teacherGlow);
+
+                teacherGfx.x = teacher.x;
+                teacherGfx.y = teacher.y;
+                world.addChild(teacherGfx);
+                teacherGraphicsRef.current[teacher.id] = teacherGfx;
+
+                // Add teacher label
+                const teacherLabel = new Text({
+                    text: teacher.name,
+                    style: {
+                        fill: '#FFD700',
+                        fontSize: 12,
+                        fontWeight: 'bold'
+                    }
+                });
+                teacherLabel.x = teacher.x - teacherLabel.width / 2;
+                teacherLabel.y = teacher.y - 45;
+                world.addChild(teacherLabel);
+                teacherLabelsRef.current[teacher.id] = teacherLabel;
+            }
+
+            // Check proximity to current player
+            const dx = teacher.x - player.x;
+            const dy = teacher.y - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance <= proximityThreshold) {
+                nearbyTeachers.push({
+                    id: teacher.id,
+                    name: teacher.name,
+                    topic: teacher.topic,
+                    x: teacher.x,
+                    y: teacher.y,
+                    distance
+                });
+            }
+        });
+
+        // Notify about nearby teachers (only if changed)
+        const nearbyKey = nearbyTeachers.map(t => t.id).sort().join(',');
+        if (nearbyKey !== lastNearbyTeachersRef.current) {
+            lastNearbyTeachersRef.current = nearbyKey;
+            onNearbyTeachersChange?.(nearbyTeachers);
+        }
+    }, [loadedTeachers, teachers, currentPlayer, proximityThreshold, onNearbyTeachersChange]);
 
     return <div ref={containerRef} className="relative w-full h-full" />;
 }
