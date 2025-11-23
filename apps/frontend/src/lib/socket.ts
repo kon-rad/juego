@@ -15,9 +15,22 @@ let socket: Socket | null = null;
 export function getSocket(): Socket {
     if (!socket) {
         const socketUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+        console.log('[Socket] Connecting to:', socketUrl);
         socket = io(socketUrl, {
             autoConnect: false,
-            transports: ['websocket', 'polling']
+            // IMPORTANT: Start with polling first, then upgrade to websocket
+            // This is required for Railway and other reverse proxies
+            transports: ['polling', 'websocket'],
+            // Add reconnection settings for better reliability
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            timeout: 20000
+        });
+
+        // Add error logging
+        socket.on('connect_error', (error) => {
+            console.error('[Socket] Connection error:', error.message);
         });
     }
     return socket;

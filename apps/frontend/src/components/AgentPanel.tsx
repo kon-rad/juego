@@ -90,6 +90,9 @@ export default function AgentPanel({
     const [currentTeacherId, setCurrentTeacherId] = useState<string | null>(null);
     const [learningTopic, setLearningTopic] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    
+    // Get MongoDB player ID for chat operations
+    const mongoDBPlayerId = playerId ? getMongoDBPlayerId() : null;
 
     // Teacher chat history storage (per teacher)
     const [teacherChatHistories, setTeacherChatHistories] = useState<Map<string, TeacherChatHistory>>(new Map());
@@ -249,11 +252,11 @@ export default function AgentPanel({
 
     // Load player conversations when conversations tab is active and no genie/teacher
     useEffect(() => {
-        if (activeTab === 'conversations' && !isGenieActive && !activeTeacher && playerId) {
+        if (activeTab === 'conversations' && !isGenieActive && !activeTeacher && mongoDBPlayerId) {
             loadConversations();
             loadTeachers();
         }
-    }, [activeTab, isGenieActive, activeTeacher, playerId]);
+    }, [activeTab, isGenieActive, activeTeacher, mongoDBPlayerId]);
 
     // Load available teachers and their chat histories
     const loadTeachers = async () => {
@@ -295,9 +298,6 @@ export default function AgentPanel({
             console.error('Error loading teachers:', error);
         }
     };
-
-    // Get MongoDB player ID for chat operations
-    const mongoDBPlayerId = playerId ? getMongoDBPlayerId() : null;
 
     // Load messages when a player chat is selected
     useEffect(() => {

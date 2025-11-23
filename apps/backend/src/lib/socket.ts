@@ -19,14 +19,24 @@ export function initSocketServer(httpServer: HttpServer): SocketServer {
     const io = new SocketServer(httpServer, {
         cors: {
             origin: '*',
-            methods: ['GET', 'POST']
-        }
+            methods: ['GET', 'POST'],
+            credentials: true
+        },
+        // Allow both transports - polling is needed for initial connection behind proxies
+        transports: ['polling', 'websocket'],
+        // Increase timeouts for production
+        pingTimeout: 60000,
+        pingInterval: 25000,
+        // Allow upgrade from polling to websocket
+        allowUpgrades: true
     });
-    
+
     socketServer = io;
 
+    console.log('Socket.IO server: waiting for connections...');
+
     io.on('connection', (socket: Socket) => {
-        console.log(`Client connected: ${socket.id}`);
+        console.log(`Client connected: ${socket.id} via ${socket.conn.transport.name}`);
 
         // Handle player joining
         socket.on('player:join', (playerData: Player) => {
