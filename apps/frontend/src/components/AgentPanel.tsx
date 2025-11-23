@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Brain, MessageSquare, Settings, Phone, Send } from 'lucide-react';
 import AICharacterList from './AICharacterList';
 import GenieSvg from './GenieSvg';
-import { createTeacher, checkTeacherPosition, Teacher } from '@/lib/mongodb-api';
+import { createTeacher, checkTeacherPosition, Teacher, chatWithTeacher } from '@/lib/mongodb-api';
 
 export interface AgentLog {
     id: string;
@@ -21,6 +21,12 @@ interface ChatMessage {
     speakerName?: string;
 }
 
+export interface ActiveTeacher {
+    id: string;
+    name: string;
+    topic: string;
+}
+
 interface AgentPanelProps {
     logs: AgentLog[];
     playerId?: string;
@@ -29,6 +35,7 @@ interface AgentPanelProps {
     onTeacherCreated?: (teacher: Teacher) => void;
     activeTab?: 'thinking' | 'conversations' | 'voice' | 'settings';
     onTabChange?: (tab: 'thinking' | 'conversations' | 'voice' | 'settings') => void;
+    activeTeacher?: ActiveTeacher | null;
 }
 
 const GENIE_INTRO = `Greetings, seeker of knowledge! I am the Learning Genie. Tell me, what subject or skill do you wish to master today? I shall summon the perfect guide to teach you!`;
@@ -40,7 +47,8 @@ export default function AgentPanel({
     playerPosition,
     onTeacherCreated,
     activeTab: externalActiveTab,
-    onTabChange
+    onTabChange,
+    activeTeacher
 }: AgentPanelProps) {
     const [internalActiveTab, setInternalActiveTab] = useState<'thinking' | 'conversations' | 'voice' | 'settings'>('thinking');
     const activeTab = externalActiveTab ?? internalActiveTab;
@@ -48,6 +56,7 @@ export default function AgentPanel({
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [inputValue, setInputValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [currentTeacherId, setCurrentTeacherId] = useState<string | null>(null);
     const [learningTopic, setLearningTopic] = useState<string | null>(null);
     const [teacherCreated, setTeacherCreated] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -62,7 +71,7 @@ export default function AgentPanel({
 
     // Initialize genie chat when genie becomes active
     useEffect(() => {
-        if (isGenieActive && chatMessages.length === 0) {
+        if (isGenieActive && chatMessages.length === 0 && !activeTeacher) {
             setChatMessages([{
                 id: 'genie-intro',
                 role: 'genie',
@@ -71,7 +80,24 @@ export default function AgentPanel({
                 speakerName: 'Learning Genie'
             }]);
         }
-    }, [isGenieActive, chatMessages.length]);
+    }, [isGenieActive, chatMessages.length, activeTeacher]);
+
+    // Initialize teacher chat when approaching a teacher
+    useEffect(() => {
+        if (activeTeacher && activeTeacher.id !== currentTeacherId) {
+            setCurrentTeacherId(activeTeacher.id);
+            setChatMessages([{
+                id: `teacher-intro-${Date.now()}`,
+                role: 'teacher',
+                content: `Hello! I'm ${activeTeacher.name}, your ${activeTeacher.topic} teacher. How can I help you learn today?`,
+                timestamp: new Date(),
+                speakerName: activeTeacher.name
+            }]);
+        } else if (!activeTeacher && currentTeacherId) {
+            // Teacher conversation ended (player moved away)
+            setCurrentTeacherId(null);
+        }
+    }, [activeTeacher, currentTeacherId]);
 
     // Scroll to bottom when new messages arrive
     useEffect(() => {
@@ -156,43 +182,71 @@ export default function AgentPanel({
         setIsLoading(true);
 
         try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/genie/chat`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: messageText,
-                    learningTopic,
-                    conversationHistory: chatMessages.map(m => ({
+            // If chatting with a teacher
+            if (activeTeacher) {
+                const result = await chatWithTeacher(
+                    activeTeacher.id,
+                    messageText,
+                    chatMessages.map(m => ({
                         role: m.role === 'user' ? 'user' : 'assistant',
                         content: m.content
                     }))
-                })
-            });
+                );
 
-            const data = await response.json();
+                if (result) {
+                    const teacherMessage: ChatMessage = {
+                        id: `teacher-${Date.now()}`,
+                        role: 'teacher',
+                        content: result.response,
+                        timestamp: new Date(),
+                        speakerName: result.teacherName
+                    };
+                    setChatMessages(prev => [...prev, teacherMessage]);
+                } else {
+                    throw new Error('Failed to get response from teacher');
+                }
+            } else {
+                // Chatting with genie
+                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/genie/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: messageText,
+                        learningTopic,
+                        conversationHistory: chatMessages.map(m => ({
+                            role: m.role === 'user' ? 'user' : 'assistant',
+                            content: m.content
+                        }))
+                    })
+                });
 
-            // If topic is identified and no teacher created yet
-            if (!learningTopic && data.learningTopic) {
-                setLearningTopic(data.learningTopic);
+                const data = await response.json();
+
+                // If topic is identified and no teacher created yet
+                if (!learningTopic && data.learningTopic) {
+                    setLearningTopic(data.learningTopic);
+                }
+
+                const genieMessage: ChatMessage = {
+                    id: `genie-${Date.now()}`,
+                    role: 'genie',
+                    content: data.response,
+                    timestamp: new Date(),
+                    speakerName: 'Learning Genie'
+                };
+
+                setChatMessages(prev => [...prev, genieMessage]);
             }
-
-            const genieMessage: ChatMessage = {
-                id: `genie-${Date.now()}`,
-                role: 'genie',
-                content: data.response,
-                timestamp: new Date(),
-                speakerName: 'Learning Genie'
-            };
-
-            setChatMessages(prev => [...prev, genieMessage]);
         } catch (error) {
-            console.error('Error chatting with genie:', error);
+            console.error('Error chatting:', error);
             const errorMessage: ChatMessage = {
                 id: `error-${Date.now()}`,
-                role: 'genie',
-                content: 'My magical powers seem to be fluctuating. Please try again.',
+                role: activeTeacher ? 'teacher' : 'genie',
+                content: activeTeacher
+                    ? 'I seem to have lost my train of thought. Please try again.'
+                    : 'My magical powers seem to be fluctuating. Please try again.',
                 timestamp: new Date(),
-                speakerName: 'Learning Genie'
+                speakerName: activeTeacher?.name || 'Learning Genie'
             };
             setChatMessages(prev => [...prev, errorMessage]);
         } finally {
@@ -294,7 +348,7 @@ export default function AgentPanel({
                     {activeTab === 'conversations' && (
                         <div className="space-y-4">
                             {/* Genie/Teacher Chat Messages */}
-                            {isGenieActive && chatMessages.map((message) => (
+                            {(isGenieActive || activeTeacher) && chatMessages.map((message) => (
                                 <div
                                     key={message.id}
                                     className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
@@ -341,7 +395,13 @@ export default function AgentPanel({
 
                             {isLoading && (
                                 <div className="flex gap-3">
-                                    <GenieSvg size={32} />
+                                    {activeTeacher ? (
+                                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-500/30 border border-amber-400/50 flex items-center justify-center">
+                                            <span className="text-xs text-amber-200">T</span>
+                                        </div>
+                                    ) : (
+                                        <GenieSvg size={32} />
+                                    )}
                                     <div className="bg-amber-900/30 border border-amber-400/30 rounded-lg p-3">
                                         <div className="flex gap-1">
                                             <div className="w-2 h-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -352,8 +412,8 @@ export default function AgentPanel({
                                 </div>
                             )}
 
-                            {/* Regular conversation logs when genie is not active */}
-                            {!isGenieActive && logs.filter(l => l.type === 'converse').map((log) => (
+                            {/* Regular conversation logs when genie/teacher is not active */}
+                            {!isGenieActive && !activeTeacher && logs.filter(l => l.type === 'converse').map((log) => (
                                 <div key={log.id} className="flex gap-3">
                                     <div className="w-8 h-8 rounded-full bg-matrix-green/20 flex items-center justify-center text-matrix-green border border-matrix-green/30">
                                         <MessageSquare size={14} />
@@ -367,7 +427,7 @@ export default function AgentPanel({
                                 </div>
                             ))}
 
-                            {!isGenieActive && logs.filter(l => l.type === 'converse').length === 0 && (
+                            {!isGenieActive && !activeTeacher && logs.filter(l => l.type === 'converse').length === 0 && (
                                 <div className="text-ghost-green text-center mt-10 font-mono uppercase text-sm tracking-wider">
                                     No conversations yet...
                                 </div>
@@ -411,8 +471,8 @@ export default function AgentPanel({
                     )}
                 </div>
 
-                {/* Chat Input - Only show in conversations tab when genie is active */}
-                {activeTab === 'conversations' && isGenieActive && (
+                {/* Chat Input - Show in conversations tab when genie or teacher is active */}
+                {activeTab === 'conversations' && (isGenieActive || activeTeacher) && (
                     <div className="p-4 border-t border-amber-400/30 bg-gradient-to-r from-amber-900/20 to-amber-950/20">
                         <div className="flex gap-2">
                             <input
@@ -420,7 +480,10 @@ export default function AgentPanel({
                                 value={inputValue}
                                 onChange={(e) => setInputValue(e.target.value)}
                                 onKeyDown={handleKeyPress}
-                                placeholder="Ask the genie what you want to learn..."
+                                placeholder={activeTeacher 
+                                    ? `Ask ${activeTeacher.name} about ${activeTeacher.topic}...`
+                                    : "Ask the genie what you want to learn..."
+                                }
                                 className="flex-1 p-3 bg-amber-950/30 border border-amber-400/30 rounded-lg text-amber-100 placeholder-amber-400/50 focus:outline-none focus:border-amber-400/60 text-sm"
                                 disabled={isLoading}
                             />

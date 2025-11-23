@@ -11,11 +11,11 @@ import "@openzeppelin/contracts/utils/Base64.sol";
  * @title BadgeNFT
  * @dev Tradable ERC721 NFT badges awarded for completing quizzes in juego.quest
  * Each badge represents completing a specific quiz with a certain score tier
+ * Only the owner (deployer) can mint new badges
  */
 contract BadgeNFT is ERC721, ERC721Enumerable, Ownable {
     using Strings for uint256;
 
-    address public quizGame;
     uint256 private _nextTokenId;
     string public baseURI;
 
@@ -44,29 +44,12 @@ contract BadgeNFT is ERC721, ERC721Enumerable, Ownable {
         uint8 correctAnswers,
         string tier
     );
-    event QuizGameUpdated(address indexed oldQuizGame, address indexed newQuizGame);
     event BaseURIUpdated(string oldBaseURI, string newBaseURI);
 
-    error OnlyQuizGame();
     error ZeroAddress();
-
-    modifier onlyQuizGame() {
-        if (msg.sender != quizGame) revert OnlyQuizGame();
-        _;
-    }
 
     constructor() ERC721("Juego Quest Badge", "BADGE") Ownable(msg.sender) {
         baseURI = "";
-    }
-
-    /**
-     * @dev Set the QuizGame contract address
-     */
-    function setQuizGame(address _quizGame) external onlyOwner {
-        if (_quizGame == address(0)) revert ZeroAddress();
-        address oldQuizGame = quizGame;
-        quizGame = _quizGame;
-        emit QuizGameUpdated(oldQuizGame, _quizGame);
     }
 
     /**
@@ -79,7 +62,7 @@ contract BadgeNFT is ERC721, ERC721Enumerable, Ownable {
     }
 
     /**
-     * @dev Mint a badge NFT to a player - only callable by QuizGame contract
+     * @dev Mint a badge NFT to a player - only callable by owner
      */
     function mintBadge(
         address to,
@@ -87,7 +70,7 @@ contract BadgeNFT is ERC721, ERC721Enumerable, Ownable {
         uint8 correctAnswers,
         uint8 totalQuestions,
         string memory quizName
-    ) external onlyQuizGame returns (uint256) {
+    ) external onlyOwner returns (uint256) {
         uint256 tokenId = _nextTokenId++;
 
         badges[tokenId] = BadgeData({

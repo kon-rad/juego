@@ -380,3 +380,49 @@ export async function createTeacher(
         return null;
     }
 }
+
+/**
+ * Chat with a teacher
+ */
+export async function chatWithTeacher(
+    teacherId: string,
+    message: string,
+    conversationHistory: { role: string; content: string }[]
+): Promise<{ response: string; teacherName: string; topic: string } | null> {
+    try {
+        const response = await fetch(`${API_URL}/api/teacher/${teacherId}/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, conversationHistory })
+        });
+
+        if (!response.ok) {
+            console.error('Failed to chat with teacher:', response.statusText);
+            return null;
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error chatting with teacher:', error);
+        return null;
+    }
+}
+
+/**
+ * Get a specific teacher by ID
+ */
+export async function getTeacher(teacherId: string): Promise<Teacher | null> {
+    try {
+        const response = await fetch(`${API_URL}/api/teacher/${teacherId}`);
+
+        if (!response.ok) {
+            console.error('Failed to get teacher:', response.statusText);
+            return null;
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error getting teacher:', error);
+        return null;
+    }
+}

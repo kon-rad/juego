@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import GameCanvas, { NearbyPlayer, NearbyTeacher } from '@/components/GameCanvas';
-import AgentPanel, { AgentLog } from '@/components/AgentPanel';
+import AgentPanel, { AgentLog, ActiveTeacher } from '@/components/AgentPanel';
 import GameStatePanel from '@/components/GameStatePanel';
 import MenuBar from '@/components/MenuBar';
 import { Teacher } from '@/lib/mongodb-api';
@@ -19,6 +19,7 @@ export default function Home() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [nearbyTeachers, setNearbyTeachers] = useState<NearbyTeacher[]>([]);
   const [activeTab, setActiveTab] = useState<'thinking' | 'conversations' | 'voice' | 'settings'>('thinking');
+  const [activeTeacher, setActiveTeacher] = useState<ActiveTeacher | null>(null);
 
   const handleAgentAction = (action: any) => {
     const newLog: AgentLog = {
@@ -83,10 +84,24 @@ export default function Home() {
 
   const handleNearbyTeachersChange = (nearbyTeachersList: NearbyTeacher[]) => {
     setNearbyTeachers(nearbyTeachersList);
+    
+    // Clear activeTeacher if the teacher is no longer nearby
+    if (activeTeacher && !nearbyTeachersList.find(t => t.id === activeTeacher.id)) {
+      setActiveTeacher(null);
+    }
   };
 
   const handleTabChange = (tab: 'thinking' | 'conversations' | 'voice' | 'settings') => {
     setActiveTab(tab);
+  };
+
+  const handleStartTeacherChat = (teacher: NearbyTeacher) => {
+    setActiveTeacher({
+      id: teacher.id,
+      name: teacher.name,
+      topic: teacher.topic
+    });
+    setActiveTab('conversations');
   };
 
   return (
@@ -158,11 +173,7 @@ export default function Home() {
                     {Math.round(teacher.distance)}px
                   </span>
                   <button
-                    onClick={() => {
-                      // Open chat tab for teacher conversation
-                      setActiveTab('conversations');
-                      console.log('Chat with teacher:', teacher.name);
-                    }}
+                    onClick={() => handleStartTeacherChat(teacher)}
                     className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/40 border border-amber-400/50 rounded text-amber-400 text-xs transition-colors"
                   >
                     Chat
@@ -194,6 +205,7 @@ export default function Home() {
           onTeacherCreated={handleTeacherCreated}
           activeTab={activeTab}
           onTabChange={handleTabChange}
+          activeTeacher={activeTeacher}
         />
       </div>
 

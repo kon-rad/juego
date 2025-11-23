@@ -12,7 +12,7 @@
     "verify:ronin": "hardhat --network ronin sourcify --endpoint https://sourcify.roninchain.com/server",
     "clean": "hardhat clean"
   },
-  "keywords": ["ronin", "nft", "erc20", "erc721", "quiz", "game"],
+  "keywords": ["ronin", "nft", "erc20", "erc721", "game"],
   "author": "",
   "license": "MIT",
   "devDependencies": {

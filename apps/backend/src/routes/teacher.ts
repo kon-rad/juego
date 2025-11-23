@@ -188,6 +188,78 @@ Keep responses concise (2-3 paragraphs max) and focus on one concept at a time.`
     }
 })
 
+// Chat with a teacher
+teacher.post('/:id/chat', async (c) => {
+    try {
+        const id = c.req.param('id')
+        const body = await c.req.json()
+        const { message, conversationHistory } = body
+
+        if (!message) {
+            return c.json({ error: 'Message is required' }, 400)
+        }
+
+        const collection = await getTeachersCollection()
+        const teacherDoc = await collection.findOne({ _id: new ObjectId(id) })
+
+        if (!teacherDoc) {
+            return c.json({ error: 'Teacher not found' }, 404)
+        }
+
+        // Use the teacher's system prompt for the conversation
+        const messages = [
+            { role: 'system', content: teacherDoc.systemPrompt },
+            ...(conversationHistory || []),
+            { role: 'user', content: message }
+        ]
+
+        // Use the AI provider (same as genie service)
+        const provider = process.env.AI_PROVIDER?.toLowerCase() === 'together' ? 'together' : 'ollama'
+        const model = process.env.AI_MODEL ?? (provider === 'together' ? 'meta-llama/Llama-3.3-70B-Instruct-Turbo' : 'llama3')
+
+        let responseContent: string
+
+        if (provider === 'together') {
+            const apiKey = process.env.TOGETHER_API_KEY
+            const payload = {
+                model,
+                messages,
+                max_tokens: 1024,
+                temperature: 0.7,
+            }
+            const response = await fetch('https://api.together.xyz/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify(payload),
+            })
+            const json = await response.json()
+            responseContent = json?.choices?.[0]?.message?.content || 'I seem to have lost my train of thought. Please try again.'
+        } else {
+            // Ollama fallback
+            const { Ollama } = await import('ollama')
+            const ollama = new Ollama()
+            const ollamaResponse = await ollama.chat({
+                model,
+                messages: messages as any,
+                stream: false,
+            })
+            responseContent = ollamaResponse.message.content
+        }
+
+        return c.json({
+            response: responseContent,
+            teacherName: teacherDoc.name,
+            topic: teacherDoc.topic
+        })
+    } catch (error) {
+        console.error('Error in teacher chat:', error)
+        return c.json({ error: 'Failed to chat with teacher' }, 500)
+    }
+})
+
 // Delete teacher
 teacher.delete('/:id', async (c) => {
     try {
