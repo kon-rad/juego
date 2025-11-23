@@ -70,7 +70,7 @@ export async function getPlayerStats(address: string): Promise<PlayerStats> {
 /**
  * Mint Learn Tokens to a wallet address
  */
-export async function mintTokens(address: string, amount: string): Promise<{ message: string }> {
+export async function mintTokens(address: string, amount: string): Promise<{ message: string; txHash?: string }> {
   const response = await fetch(`${API_URL}/api/blockchain/mint/tokens`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -92,7 +92,7 @@ export async function mintNFT(
   correctAnswers?: number,
   totalQuestions?: number,
   quizName?: string
-): Promise<{ message: string; tokenId?: string }> {
+): Promise<{ message: string; tokenId?: string; txHash?: string }> {
   const response = await fetch(`${API_URL}/api/blockchain/mint/nft`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

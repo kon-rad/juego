@@ -1,29 +1,41 @@
 Juego - Technical Implementation Plan
 Goal: Build MVP in 48 hours for ETHGlobal Buenos Aires hackathon
 
-Tech Stack
-Frontend
+Deployment Complete!
+Contract Addresses (Ronin Mainnet)
+Contract	Address
+LearnToken	0xD7f0998e629b841747ba5cF4646DCc064d24Ad74
+BadgeNFT	0x89A9dC0A72ebB5Fa99A9872140dF40E46DF09e66
+Admin/Owner	0x9Ca2D4F1d1313dD12D7DAE0CD701A061EE6383aa
+View on Ronin Explorer
+LearnToken: https://app.roninchain.com/address/0xD7f0998e629b841747ba5cF4646DCc064d24Ad74
+BadgeNFT: https://app.roninchain.com/address/0x89A9dC0A72ebB5Fa99A9872140dF40E46DF09e66
+Transaction Hashes
+LearnToken Deploy: 0xb7f3d3425be115ac3d45cfea302d2da80357681a9f34c48f86ce98e1cceb373b
+BadgeNFT Deploy: 0x10795b07fbda3891f006c4e7d3bf3446a26dded36b7431198bc65c38e1780cc9
+Verification
+Both contracts are verified on Ronin Sourcify.
+Next Steps
+Update your backend .env or contracts.json with the new mainnet addresses to connect your application to these deployed contracts.
 
-Framework: Next.js 14 (App Router)
-UI: shadcn/ui + Tailwind CSS
-State: Zustand
-Wallet: @coinbase/onchainkit + CDP Embedded Wallets
-Deployment: Vercel
 
-Backend
+# Tech Stack
 
-Runtime: Node.js (Bun for speed)
-Framework: Hono (lightweight)
-LLM: OpenAI GPT-4o-mini (fast + cheap)
-Vector DB: Pinecone (hosted, easy setup)
-MCP Server: Custom implementation
+## Frontend
+- **Framework**: Next.js 14 (App Router)
+- **UI**: shadcn/ui + Tailwind CSS
+- **Wallet**: Ronin Wallet Integration
 
-Blockchain
+## Backend
+- **Runtime**: Node.js (Bun for speed)
+- **Framework**: Hono (lightweight)
+- **Smart Contracts**: Solidity + Hardhat
 
-Network: Base Sepolia (testnet) → Base Mainnet (launch)
-Smart Contracts: Solidity + Foundry
-RPC: Base public RPC
-Payments: x402 protocol (Coinbase implementation)
+## Blockchain
+- **Network**: Base Sepolia (testnet) → Base Mainnet (launch)
+- **Smart Contracts**: Solidity + Hardhat
+- **RPC**: Base public RPC
+- **Payments**: x402 protocol (Coinbase implementation)
 
 Storage & Infrastructure
 
@@ -36,6 +48,8 @@ Hosting: Railway (backend) / Vercel (frontend)
 
 System Architecture
 ┌─────────────────────────────────────────────────────────┐
+│                    NEXT.JS FRONTEND                      │
+│  /app/page.tsx          - Landing page                   │
 │                    NEXT.JS FRONTEND                      │
 │  /app/page.tsx          - Landing page                   │
 │  /app/create/           - Creator onboarding             │
@@ -635,6 +649,10 @@ import { sendMessage, verifyPayment } from '@/lib/api';
 export default function ChatPage() {
   const { username } = useParams();
   const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [sessionId, setSessionId] = useState(null);
+  const [paid, setPaid] = useState(false);
+  
   const [input, setInput] = useState('');
   const [sessionId, setSessionId] = useState(null);
   const [paid, setPaid] = useState(false);

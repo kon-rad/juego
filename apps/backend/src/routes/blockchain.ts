@@ -105,8 +105,11 @@ blockchain.post('/mint/tokens', async (c) => {
       return c.json({ error: 'Invalid amount' }, 400);
     }
 
-    await blockchainService.mintTokens(address, amount);
-    return c.json({ message: `Successfully minted ${amount} tokens to ${address}` });
+    const result = await blockchainService.mintTokens(address, amount);
+    return c.json({
+      message: `Successfully minted ${amount} tokens to ${address}`,
+      txHash: result.txHash
+    });
   } catch (error) {
     console.error('Error minting tokens:', error);
     return c.json(
@@ -155,9 +158,10 @@ blockchain.post('/mint/nft', async (c) => {
       finalTotalQuestions,
       finalQuizName
     );
-    return c.json({ 
+    return c.json({
       message: `Successfully minted NFT to ${address}`,
-      tokenId: result.tokenId
+      tokenId: result.tokenId,
+      txHash: result.txHash
     });
   } catch (error) {
     console.error('Error minting NFT:', error);

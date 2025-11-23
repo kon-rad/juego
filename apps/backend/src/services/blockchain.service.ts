@@ -207,7 +207,7 @@ export class BlockchainService {
   /**
    * Mint Learn Tokens to a specific address
    */
-  async mintTokens(to: string, amount: string): Promise<void> {
+  async mintTokens(to: string, amount: string): Promise<{ txHash: string }> {
     await this.ensureInitialized();
     try {
       const decimals = await this.learnTokenContract.decimals();
@@ -215,6 +215,7 @@ export class BlockchainService {
       const tx = await this.learnTokenContract.mint(to, amountInWei);
       const receipt = await tx.wait();
       console.log(`Minted ${amount} tokens to ${to}, tx: ${receipt.hash}`);
+      return { txHash: receipt.hash };
     } catch (error) {
       console.error('Error minting tokens:', error);
       throw new Error(`Failed to mint tokens: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -230,7 +231,7 @@ export class BlockchainService {
     correctAnswers: number = 5,
     totalQuestions: number = 5,
     quizName: string = 'Demo Quiz'
-  ): Promise<{ tokenId: string }> {
+  ): Promise<{ tokenId: string; txHash: string }> {
     await this.ensureInitialized();
     try {
       const tx = await this.badgeNFTContract.mintBadge(
@@ -242,11 +243,11 @@ export class BlockchainService {
       );
       const receipt = await tx.wait();
       console.log(`Minted NFT to ${to}, tx: ${receipt.hash}`);
-      
+
       // Get the token ID from the event or return a placeholder
       // The contract returns the tokenId, but we need to extract it from the transaction
       // For now, we'll return the transaction hash as a reference
-      return { tokenId: receipt.hash };
+      return { tokenId: receipt.hash, txHash: receipt.hash };
     } catch (error) {
       console.error('Error minting NFT:', error);
       throw new Error(`Failed to mint NFT: ${error instanceof Error ? error.message : 'Unknown error'}`);

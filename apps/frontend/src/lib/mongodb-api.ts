@@ -463,7 +463,7 @@ export async function getTeacher(teacherId: string): Promise<Teacher | null> {
 // ============== Teacher Chat History API Functions ==============
 
 export interface TeacherChatMessage {
-    role: 'user' | 'teacher';
+    role: 'user' | 'teacher' | 'reward';
     content: string;
     timestamp: Date;
     speakerName?: string;

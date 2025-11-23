@@ -14,11 +14,18 @@
     "update:config": "node scripts/update-contracts-config.js",
     "clean": "hardhat clean"
   },
-  "keywords": ["ronin", "nft", "erc20", "erc721", "game"],
+  "keywords": [
+    "ronin",
+    "nft",
+    "erc20",
+    "erc721",
+    "game"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "dotenv": "^17.2.3",
     "hardhat": "^2.27.0",
     "hardhat-deploy": "^1.0.4"
   },

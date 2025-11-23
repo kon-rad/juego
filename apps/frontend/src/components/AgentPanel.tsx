@@ -271,13 +271,20 @@ export default function AgentPanel({
                         teacherId: h.teacherId,
                         teacherName: h.teacherName,
                         topic: h.topic,
-                        messages: h.messages.map(m => ({
-                            id: `${m.role}-${m.timestamp.getTime()}`,
-                            role: m.role === 'user' ? 'user' : m.role === 'reward' ? 'reward' : 'teacher',
-                            content: m.content,
-                            timestamp: m.timestamp,
-                            speakerName: m.speakerName
-                        })),
+                        messages: h.messages.map(m => {
+                            let role: 'genie' | 'user' | 'teacher' | 'reward' = 'teacher';
+                            if (m.role === 'user') role = 'user';
+                            else if (m.role === 'reward') role = 'reward';
+                            else if (m.role === 'teacher') role = 'teacher';
+                            
+                            return {
+                                id: `${m.role}-${m.timestamp.getTime()}`,
+                                role,
+                                content: m.content,
+                                timestamp: m.timestamp,
+                                speakerName: m.speakerName
+                            };
+                        }),
                         lastMessageAt: h.lastMessageAt
                     });
                 });
@@ -597,25 +604,35 @@ export default function AgentPanel({
         try {
             // Mint 10 tokens first
             const tokensAmount = '10';
-            await mintTokens(walletAddress, tokensAmount);
-            
+            const tokenResult = await mintTokens(walletAddress, tokensAmount);
+
             // Wait a bit to ensure the transaction is processed before minting NFT
             // This helps avoid nonce issues
             await new Promise(resolve => setTimeout(resolve, 2000));
-            
+
             // Mint 1 NFT badge
             const teacherId = activeTeacher?.id || selectedTeacherChat;
             const teacherIdHex = teacherId ? teacherId.replace(/[^a-f0-9]/gi, '').slice(0, 8) || '00000000' : '00000000';
             const quizId = parseInt(teacherIdHex, 16) || 1;
             const quizName = activeTeacher ? `${activeTeacher.topic} Quiz` : 'Learning Quiz';
-            
-            await mintNFT(walletAddress, quizId, 1, 1, quizName);
 
-            // Add reward message to chat
+            const nftResult = await mintNFT(walletAddress, quizId, 1, 1, quizName);
+
+            // Build explorer links (Ronin mainnet: app.roninchain.com, Saigon testnet: saigon-app.roninchain.com)
+            const explorerBaseUrl = 'https://app.roninchain.com/tx/';
+            const tokenTxLink = tokenResult.txHash ? `${explorerBaseUrl}${tokenResult.txHash}` : null;
+            const nftTxLink = nftResult.txHash ? `${explorerBaseUrl}${nftResult.txHash}` : null;
+
+            // Add reward message to chat with transaction links
+            const txLinksText = [
+                tokenTxLink ? `Tokens: ${tokenTxLink}` : null,
+                nftTxLink ? `NFT: ${nftTxLink}` : null
+            ].filter(Boolean).join('\n');
+
             const rewardMessage: ChatMessage = {
                 id: `reward-debug-${Date.now()}`,
                 role: 'reward',
-                content: `🎉 Debug: You've been awarded 10 $LEARN tokens and 1 NFT badge!`,
+                content: `🎉 Debug: You've been awarded 10 $LEARN tokens and 1 NFT badge!${txLinksText ? `\n\nView on Ronin Explorer:\n${txLinksText}` : ''}`,
                 timestamp: new Date(),
                 tokensAwarded: 10,
                 nftAwarded: true
@@ -1116,7 +1133,23 @@ export default function AgentPanel({
                                                                 <span className="text-xl">🎉</span>
                                                                 <span className="font-bold text-green-300">Reward Notification</span>
                                                             </div>
-                                                            <p className="whitespace-pre-wrap mb-2 break-words overflow-wrap-anywhere">{message.content}</p>
+                                                            <p className="whitespace-pre-wrap mb-2 break-words overflow-wrap-anywhere">
+                                                                {message.content.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
+                                                                    part.match(/^https?:\/\//) ? (
+                                                                        <a
+                                                                            key={i}
+                                                                            href={part}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="text-blue-300 hover:text-blue-200 underline break-all"
+                                                                        >
+                                                                            {part}
+                                                                        </a>
+                                                                    ) : (
+                                                                        <span key={i}>{part}</span>
+                                                                    )
+                                                                )}
+                                                            </p>
                                                             {message.tokensAwarded && message.tokensAwarded > 0 && (
                                                                 <div className="text-xs text-green-200 mt-2 pt-2 border-t border-green-400/30 break-words">
                                                                     💰 {message.tokensAwarded} $LEARN tokens
@@ -1367,10 +1400,10 @@ export default function AgentPanel({
                             <button
                                 onClick={handleDebugMint}
                                 disabled={isLoading || !walletAddress}
-                                className="px-3 bg-gradient-to-b from-purple-500 to-purple-600 text-white font-semibold rounded-lg hover:from-purple-400 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center"
+                                className="px-0.5 py-0.5 bg-gradient-to-b from-purple-500 to-purple-600 text-white rounded hover:from-purple-400 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center"
                                 title="Debug: Mint tokens and NFT"
                             >
-                                <Bug size={18} />
+                                <Bug size={8} />
                             </button>
                             <button
                                 onClick={handleSendMessage}
