@@ -167,13 +167,13 @@ export class BlockchainService {
           totalMinted: totalNFTs,
           name: nftName,
           symbol: nftSymbol,
-          contractAddress: this.badgeNFTContract.address
+          contractAddress: await this.badgeNFTContract.getAddress()
         },
         tokens: {
           totalSupply: totalTokens,
           name: tokenName,
           symbol: tokenSymbol,
-          contractAddress: this.learnTokenContract.address
+          contractAddress: await this.learnTokenContract.getAddress()
         }
       };
     } catch (error) {
