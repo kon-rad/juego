@@ -66,3 +66,47 @@ export async function getPlayerStats(address: string): Promise<PlayerStats> {
   }
   return response.json();
 }
+
+/**
+ * Mint Learn Tokens to a wallet address
+ */
+export async function mintTokens(address: string, amount: string): Promise<{ message: string }> {
+  const response = await fetch(`${API_URL}/api/blockchain/mint/tokens`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address, amount })
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to mint tokens');
+  }
+  return response.json();
+}
+
+/**
+ * Mint Badge NFT to a wallet address
+ */
+export async function mintNFT(
+  address: string,
+  quizId?: number,
+  correctAnswers?: number,
+  totalQuestions?: number,
+  quizName?: string
+): Promise<{ message: string; tokenId?: string }> {
+  const response = await fetch(`${API_URL}/api/blockchain/mint/nft`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      address,
+      quizId,
+      correctAnswers,
+      totalQuestions,
+      quizName
+    })
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to mint NFT');
+  }
+  return response.json();
+}

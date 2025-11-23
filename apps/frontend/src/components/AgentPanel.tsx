@@ -4,8 +4,9 @@ import { useState, useRef, useEffect } from 'react';
 import { Brain, MessageSquare, Settings, Phone, Send, ChevronLeft } from 'lucide-react';
 import AICharacterList from './AICharacterList';
 import GenieSvg from './GenieSvg';
-import { createTeacher, checkTeacherPosition, Teacher, chatWithTeacher, getPlayerConversations, getChatMessages, sendChatMessage, getTeachers, type Chat, type ChatMessage as PlayerChatMessage } from '@/lib/mongodb-api';
+import { createTeacher, checkTeacherPosition, Teacher, chatWithTeacher, getPlayerConversations, getChatMessages, sendChatMessage, getTeachers, getPlayerTeacherChatHistories, saveTeacherChatHistory, getPlayerProfile, updatePlayerProfile, type Chat, type ChatMessage as PlayerChatMessage, type TeacherChatHistoryResponse } from '@/lib/mongodb-api';
 import { onChatMessage, type ChatMessageEvent } from '@/lib/socket';
+import { getMongoDBPlayerId } from '@/lib/player';
 
 export interface AgentLog {
     id: string;
@@ -57,6 +58,7 @@ interface AgentPanelProps {
     activePlayerChat?: ActivePlayerChat | null;
     onActivePlayerChatChange?: (chat: ActivePlayerChat | null) => void;
     onScoreUpdate?: (newScore: number) => void;
+    onBalanceRefresh?: () => void;
 }
 
 const GENIE_INTRO = `Greetings, seeker of knowledge! I am the Learning Genie. Tell me, what subject or skill do you wish to master today? I shall summon the perfect guide to teach you!`;
@@ -73,7 +75,8 @@ export default function AgentPanel({
     activeTeacher,
     activePlayerChat: externalActivePlayerChat,
     onActivePlayerChatChange,
-    onScoreUpdate
+    onScoreUpdate,
+    onBalanceRefresh
 }: AgentPanelProps) {
     const [internalActiveTab, setInternalActiveTab] = useState<'thinking' | 'conversations' | 'voice' | 'settings'>('thinking');
     const activeTab = externalActiveTab ?? internalActiveTab;
@@ -99,6 +102,13 @@ export default function AgentPanel({
     const [isLoadingConversations, setIsLoadingConversations] = useState(false);
     const [isLoadingMessages, setIsLoadingMessages] = useState(false);
     const activePlayerChat = externalActivePlayerChat ?? internalActivePlayerChat;
+
+    // Settings state
+    const [userName, setUserName] = useState<string>('');
+    const [bio, setBio] = useState<string>('');
+    const [interests, setInterests] = useState<string>('');
+    const [isLoadingProfile, setIsLoadingProfile] = useState(false);
+    const [isSavingProfile, setIsSavingProfile] = useState(false);
 
     const handleTabChange = (tab: 'thinking' | 'conversations' | 'voice' | 'settings') => {
         if (onTabChange) {
@@ -244,11 +254,35 @@ export default function AgentPanel({
         }
     }, [activeTab, isGenieActive, activeTeacher, playerId]);
 
-    // Load available teachers
+    // Load available teachers and their chat histories
     const loadTeachers = async () => {
         try {
             const teachers = await getTeachers();
             setAvailableTeachers(teachers);
+
+            // Load chat histories from backend if player is logged in
+            if (playerId) {
+                const histories = await getPlayerTeacherChatHistories(playerId);
+                const historyMap = new Map<string, TeacherChatHistory>();
+
+                histories.forEach((h: TeacherChatHistoryResponse) => {
+                    historyMap.set(h.teacherId, {
+                        teacherId: h.teacherId,
+                        teacherName: h.teacherName,
+                        topic: h.topic,
+                        messages: h.messages.map(m => ({
+                            id: `${m.role}-${m.timestamp.getTime()}`,
+                            role: m.role === 'user' ? 'user' : 'teacher',
+                            content: m.content,
+                            timestamp: m.timestamp,
+                            speakerName: m.speakerName
+                        })),
+                        lastMessageAt: h.lastMessageAt
+                    });
+                });
+
+                setTeacherChatHistories(historyMap);
+            }
         } catch (error) {
             console.error('Error loading teachers:', error);
         }
@@ -357,8 +391,8 @@ export default function AgentPanel({
     // Create teacher when learning topic is identified
     useEffect(() => {
         const createTeacherForTopic = async () => {
+            // Early return if conditions aren't met - don't log repeatedly
             if (!learningTopic || teacherCreated || !playerId || !playerPosition) {
-                console.log('Teacher creation skipped:', { learningTopic, teacherCreated, playerId, playerPosition });
                 return;
             }
             
@@ -497,23 +531,50 @@ export default function AgentPanel({
                     const newMessages = [...chatMessages, userMessage, teacherMessage];
                     setChatMessages(newMessages);
 
-                    // Update chat history
+                    // Update chat history in state
+                    const updatedHistory: TeacherChatHistory = {
+                        teacherId,
+                        teacherName: result.teacherName,
+                        topic: result.topic,
+                        messages: newMessages,
+                        lastMessageAt: new Date()
+                    };
+
                     setTeacherChatHistories(prev => {
                         const newMap = new Map(prev);
-                        const existing = newMap.get(teacherId);
-                        if (existing) {
-                            newMap.set(teacherId, {
-                                ...existing,
-                                messages: newMessages,
-                                lastMessageAt: new Date()
-                            });
-                        }
+                        newMap.set(teacherId, updatedHistory);
                         return newMap;
                     });
+
+                    // Persist to backend
+                    if (playerId) {
+                        saveTeacherChatHistory(
+                            playerId,
+                            teacherId,
+                            result.teacherName,
+                            result.topic,
+                            newMessages.map(m => ({
+                                role: m.role,
+                                content: m.content,
+                                timestamp: m.timestamp,
+                                speakerName: m.speakerName
+                            }))
+                        ).catch(err => console.error('Error saving chat history:', err));
+                    }
 
                     // Update score if tokens were awarded
                     if (result.newScore !== undefined && onScoreUpdate) {
                         onScoreUpdate(result.newScore);
+                    }
+
+                    // Refresh balances if tokens or NFT were awarded
+                    if ((result.tokensAwarded && result.tokensAwarded > 0) || result.nftAwarded) {
+                        // Wait a bit for blockchain transaction to complete, then refresh
+                        setTimeout(() => {
+                            if (onBalanceRefresh) {
+                                onBalanceRefresh();
+                            }
+                        }, 2000); // 2 second delay to allow transaction to be mined
                     }
                 } else {
                     throw new Error('Failed to get response from teacher');
@@ -577,6 +638,207 @@ export default function AgentPanel({
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSendMessage();
+        }
+    };
+
+    // Generate a random username like 'cleverFox'
+    const generateUserName = (): string => {
+        const adjectives = ['clever', 'swift', 'brave', 'bold', 'quick', 'wise', 'silent', 'mighty', 'bright', 'sharp'];
+        const nouns = ['Fox', 'Wolf', 'Eagle', 'Tiger', 'Bear', 'Hawk', 'Lion', 'Dragon', 'Falcon', 'Raven'];
+        const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+        const noun = nouns[Math.floor(Math.random() * nouns.length)];
+        return `${adj}${noun}`;
+    };
+
+    // Load player profile when settings tab is opened
+    useEffect(() => {
+        if (activeTab === 'settings' && playerId) {
+            loadPlayerProfile();
+        }
+    }, [activeTab, playerId]);
+
+    const loadPlayerProfile = async () => {
+        const mongoId = getMongoDBPlayerId();
+        if (!mongoId) return;
+
+        setIsLoadingProfile(true);
+        try {
+            const profile = await getPlayerProfile(mongoId);
+            if (profile) {
+                // Set userName, generate if not exists
+                if (profile.userName) {
+                    setUserName(profile.userName);
+                } else {
+                    const generatedName = generateUserName();
+                    setUserName(generatedName);
+                    // Auto-save the generated name
+                    await savePlayerProfile(mongoId, { userName: generatedName });
+                }
+                
+                setBio(profile.biography || '');
+                setInterests(profile.interests?.join(', ') || '');
+            }
+        } catch (error) {
+            console.error('Error loading player profile:', error);
+        } finally {
+            setIsLoadingProfile(false);
+        }
+    };
+
+    const savePlayerProfile = async (mongoId: string, updates?: { userName?: string; biography?: string; interests?: string[] }) => {
+        setIsSavingProfile(true);
+        try {
+            const profileData: any = {};
+            
+            if (updates?.userName !== undefined) {
+                profileData.userName = updates.userName;
+            } else {
+                profileData.userName = userName;
+            }
+            
+            if (updates?.biography !== undefined) {
+                profileData.biography = updates.biography;
+            } else {
+                profileData.biography = bio;
+            }
+            
+            if (updates?.interests !== undefined) {
+                profileData.interests = updates.interests;
+            } else {
+                // Parse interests from comma-separated string
+                const interestsArray = interests.split(',').map(i => i.trim()).filter(i => i.length > 0);
+                profileData.interests = interestsArray;
+            }
+
+            await updatePlayerProfile(mongoId, profileData);
+        } catch (error) {
+            console.error('Error saving player profile:', error);
+            alert('Failed to save profile. Please try again.');
+        } finally {
+            setIsSavingProfile(false);
+        }
+    };
+
+    const handleSaveProfile = async () => {
+        const mongoId = getMongoDBPlayerId();
+        if (!mongoId) {
+            alert('Player ID not found. Please join the game first.');
+            return;
+        }
+        await savePlayerProfile(mongoId);
+    };
+
+    const handleConnectWallet = async () => {
+        try {
+            const mongoId = getMongoDBPlayerId();
+            if (!mongoId) {
+                alert('Player ID not found. Please join the game first.');
+                return;
+            }
+
+            // Generate a new wallet and save it to the player document
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/player/wallet`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ playerId: mongoId })
+            });
+
+            const data = await response.json();
+            if (response.ok && data.walletAddress) {
+                // Store the new wallet address
+                localStorage.setItem('walletAddress', data.walletAddress);
+                alert(`New wallet connected: ${data.walletAddress}\n\nPlease save this address securely.`);
+                // Optionally reload the page or update wallet display
+                window.location.reload();
+            } else {
+                alert(data.error || 'Failed to connect wallet. Please try again.');
+            }
+        } catch (error) {
+            console.error('Error connecting wallet:', error);
+            alert('Error connecting wallet. Please try again.');
+        }
+    };
+
+    const handleExportSeedPhrase = async () => {
+        try {
+            const mongoId = getMongoDBPlayerId();
+            const currentWalletAddress = walletAddress || localStorage.getItem('walletAddress');
+            
+            if (!currentWalletAddress) {
+                alert('No wallet found. Please connect a wallet first.');
+                return;
+            }
+
+            // Get the private key from the backend
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/player/wallet`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    publicAddress: currentWalletAddress,
+                    playerId: mongoId || undefined
+                })
+            });
+
+            const data = await response.json();
+            if (response.ok && data.privateKey) {
+                // Show the private key in a prompt (in production, this should be more secure)
+                const confirmed = confirm(
+                    'WARNING: Your private key is sensitive information. Never share it with anyone.\n\n' +
+                    'Click OK to copy your private key to clipboard, or Cancel to view it here.'
+                );
+                
+                if (confirmed) {
+                    await navigator.clipboard.writeText(data.privateKey);
+                    alert('Private key copied to clipboard!');
+                } else {
+                    // Show in an alert (not ideal for security, but functional)
+                    alert(`Your private key:\n\n${data.privateKey}\n\nPlease save this securely.`);
+                }
+            } else {
+                alert(data.error || 'Failed to retrieve seed phrase. The wallet may not be stored on the server.');
+            }
+        } catch (error) {
+            console.error('Error exporting seed phrase:', error);
+            alert('Error exporting seed phrase. Please try again.');
+        }
+    };
+
+    const handleStartPlayerChat = async (playerId: string, otherPlayerId: string) => {
+        if (!playerId || !otherPlayerId) {
+            console.error('Player IDs are required to start a chat.');
+            return;
+        }
+
+        try {
+            // Call backend to create or retrieve the chat
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/chat/conversation`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ participant1Id: playerId, participant2Id: otherPlayerId })
+            });
+
+            if (!response.ok) {
+                console.error('Failed to start chat:', response.statusText);
+                return;
+            }
+
+            const chat = await response.json();
+
+            // Update the active player chat state
+            const activeChat: ActivePlayerChat = {
+                chatId: chat.id,
+                otherPlayerId: chat.participant1Id === playerId ? chat.participant2Id : chat.participant1Id,
+                otherPlayerName: chat.participant1Id === playerId ? chat.participant2Name : chat.participant1Name,
+                otherPlayerAvatarColor: chat.participant1Id === playerId ? chat.participant2AvatarColor : chat.participant1AvatarColor
+            };
+
+            if (onActivePlayerChatChange) {
+                onActivePlayerChatChange(activeChat);
+            } else {
+                setInternalActivePlayerChat(activeChat);
+            }
+        } catch (error) {
+            console.error('Error starting player chat:', error);
         }
     };
 
@@ -944,22 +1206,87 @@ export default function AgentPanel({
 
                     {activeTab === 'settings' && (
                         <div className="space-y-6">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-dim-green uppercase tracking-wider">Model</label>
-                                <select className="w-full p-2 rounded bg-code-black border border-matrix-green/40 text-matrix-green text-sm font-mono focus:outline-none focus:border-matrix-green glow-green-subtle transition-all duration-200">
-                                    <option>llama3</option>
-                                    <option>mistral</option>
-                                    <option>gemma</option>
-                                </select>
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-dim-green uppercase tracking-wider">Agent Speed</label>
-                                <input type="range" className="w-full accent-matrix-green" />
-                                <div className="flex justify-between text-xs text-ghost-green font-mono uppercase">
-                                    <span>Slow</span>
-                                    <span>Fast</span>
+                            {isLoadingProfile ? (
+                                <div className="text-ghost-green text-center py-4 font-mono text-sm">
+                                    Loading profile...
                                 </div>
-                            </div>
+                            ) : (
+                                <>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-dim-green uppercase tracking-wider">User Name</label>
+                                        <input
+                                            type="text"
+                                            value={userName}
+                                            onChange={(e) => setUserName(e.target.value)}
+                                            className="w-full p-2 rounded bg-code-black border border-matrix-green/40 text-matrix-green text-sm font-mono focus:outline-none focus:border-matrix-green glow-green-subtle transition-all duration-200"
+                                            placeholder="cleverFox"
+                                        />
+                                    </div>
+                                    
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-dim-green uppercase tracking-wider">Bio</label>
+                                        <textarea
+                                            value={bio}
+                                            onChange={(e) => setBio(e.target.value)}
+                                            rows={4}
+                                            className="w-full p-2 rounded bg-code-black border border-matrix-green/40 text-matrix-green text-sm font-mono focus:outline-none focus:border-matrix-green glow-green-subtle transition-all duration-200 resize-none"
+                                            placeholder="Tell us about yourself..."
+                                        />
+                                    </div>
+                                    
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-dim-green uppercase tracking-wider">Interests</label>
+                                        <input
+                                            type="text"
+                                            value={interests}
+                                            onChange={(e) => setInterests(e.target.value)}
+                                            className="w-full p-2 rounded bg-code-black border border-matrix-green/40 text-matrix-green text-sm font-mono focus:outline-none focus:border-matrix-green glow-green-subtle transition-all duration-200"
+                                            placeholder="coding, gaming, learning (comma-separated)"
+                                        />
+                                    </div>
+                                    
+                                    <button
+                                        onClick={handleSaveProfile}
+                                        disabled={isSavingProfile}
+                                        className="w-full px-4 py-2 bg-gradient-to-b from-matrix-green to-green-600 text-terminal-black font-semibold rounded-lg hover:from-green-400 hover:to-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                    >
+                                        {isSavingProfile ? 'Saving...' : 'Save Profile'}
+                                    </button>
+                                    
+                                    <div className="border-t border-matrix-green/20 pt-4 space-y-3">
+                                        <button
+                                            onClick={handleConnectWallet}
+                                            className="w-full px-4 py-2 bg-gradient-to-b from-amber-500 to-amber-600 text-amber-950 font-semibold rounded-lg hover:from-amber-400 hover:to-amber-500 transition-all"
+                                        >
+                                            Connect Another Crypto Wallet
+                                        </button>
+                                        
+                                        <button
+                                            onClick={handleExportSeedPhrase}
+                                            className="w-full px-4 py-2 bg-gradient-to-b from-red-600 to-red-700 text-white font-semibold rounded-lg hover:from-red-500 hover:to-red-600 transition-all"
+                                        >
+                                            Export Seed Phrase
+                                        </button>
+                                    </div>
+                                    
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-dim-green uppercase tracking-wider">Model</label>
+                                        <select className="w-full p-2 rounded bg-code-black border border-matrix-green/40 text-matrix-green text-sm font-mono focus:outline-none focus:border-matrix-green glow-green-subtle transition-all duration-200">
+                                            <option>llama3</option>
+                                            <option>mistral</option>
+                                            <option>gemma</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-dim-green uppercase tracking-wider">Agent Speed</label>
+                                        <input type="range" className="w-full accent-matrix-green" />
+                                        <div className="flex justify-between text-xs text-ghost-green font-mono uppercase">
+                                            <span>Slow</span>
+                                            <span>Fast</span>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     )}
                 </div>

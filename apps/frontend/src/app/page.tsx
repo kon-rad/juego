@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import GameCanvas, { NearbyPlayer, NearbyTeacher } from '@/components/GameCanvas';
 import AgentPanel, { AgentLog, ActiveTeacher, ActivePlayerChat } from '@/components/AgentPanel';
 import GameStatePanel from '@/components/GameStatePanel';
@@ -24,6 +24,8 @@ export default function Home() {
   const [activePlayerChat, setActivePlayerChat] = useState<ActivePlayerChat | null>(null);
   const [mongoDBPlayerId, setMongoDBPlayerId] = useState<string | null>(null);
   const [walletAddress, setWalletAddress] = useState<string>('');
+  const [balanceRefreshFn, setBalanceRefreshFn] = useState<(() => void) | null>(null);
+  const lastRoninAddressRef = useRef<string | null>(null);
 
   // Add logging to debug wallet initialization
   useEffect(() => {
@@ -39,7 +41,7 @@ export default function Home() {
         } else {
           // Create a new wallet
           console.log('No wallet found, generating a new one...');
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/blockchain/wallet/generate`, {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/blockchain/wallet/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
           });
@@ -198,7 +200,23 @@ export default function Home() {
     <main className="h-screen w-screen overflow-hidden bg-deep-black grid grid-cols-[1fr_384px] grid-rows-[32px_1fr_80px]">
       {/* Menu Bar - Top (spans both columns) */}
       <div className="col-span-2">
-        <MenuBar autoMode={autoMode} onAutoModeToggle={setAutoMode} walletAddress={walletAddress || 'No wallet'} />
+        <MenuBar
+          autoMode={autoMode}
+          onAutoModeToggle={setAutoMode}
+          walletAddress={walletAddress || 'No wallet'}
+          onRoninWalletConnect={useCallback((address: string) => {
+            // Only update if the address actually changed
+            if (address && address !== lastRoninAddressRef.current) {
+              console.log('Ronin wallet connected:', address);
+              lastRoninAddressRef.current = address;
+              setWalletAddress(address);
+              localStorage.setItem('walletAddress', address);
+            }
+          }, [])}
+          onBalanceRefresh={useCallback((refreshFn: () => void) => {
+            setBalanceRefreshFn(() => refreshFn);
+          }, [])}
+        />
       </div>
 
       {/* Game Canvas - Center Left */}
@@ -290,6 +308,7 @@ export default function Home() {
         <AgentPanel
           logs={logs}
           playerId={playerId}
+          walletAddress={walletAddress}
           isGenieActive={isGenieActive}
           playerPosition={currentPosition}
           onTeacherCreated={handleTeacherCreated}
@@ -298,6 +317,11 @@ export default function Home() {
           activeTeacher={activeTeacher}
           activePlayerChat={activePlayerChat}
           onActivePlayerChatChange={setActivePlayerChat}
+          onBalanceRefresh={() => {
+            if (balanceRefreshFn) {
+              balanceRefreshFn();
+            }
+          }}
         />
       </div>
 

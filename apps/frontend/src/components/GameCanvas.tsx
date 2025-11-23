@@ -27,6 +27,8 @@ import {
     Player as SocketPlayer
 } from '@/lib/socket';
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
 export interface NearbyPlayer {
     id: string;
     name: string;
@@ -198,12 +200,24 @@ export default function GameCanvas({
         const keys = keysRef.current;
 
         const onKeyDown = (e: KeyboardEvent) => {
+            // Don't handle keyboard input when user is typing in an input or textarea
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+                return;
+            }
+
             keys[e.key] = true;
             keys[e.key.toLowerCase()] = true; // Also handle lowercase
             console.log(`Key pressed: ${e.key}`, Object.keys(keys).filter(k => keys[k]));
         };
 
         const onKeyUp = (e: KeyboardEvent) => {
+            // Don't handle keyboard input when user is typing in an input or textarea
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+                return;
+            }
+
             keys[e.key] = false;
             keys[e.key.toLowerCase()] = false; // Also handle lowercase
             console.log(`Key released: ${e.key}`, Object.keys(keys).filter(k => keys[k]));
@@ -776,7 +790,7 @@ export default function GameCanvas({
 
                 if (storedWalletAddress) {
                     // Use existing wallet address
-                    const response = await fetch('/api/player/wallet', {
+                    const response = await fetch(`${API_BASE_URL}/api/player/wallet`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ publicAddress: storedWalletAddress })
@@ -791,7 +805,7 @@ export default function GameCanvas({
                     }
                 } else {
                     // Create a new wallet
-                    const response = await fetch('/api/player/wallet', {
+                    const response = await fetch(`${API_BASE_URL}/api/player/wallet`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({})
@@ -820,7 +834,7 @@ export default function GameCanvas({
 
         const fetchWallet = async () => {
             if (storedWalletAddress) {
-                const response = await fetch('/api/wallet', {
+                const response = await fetch(`${API_BASE_URL}/api/player/wallet`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ publicAddress: storedWalletAddress })
@@ -828,7 +842,7 @@ export default function GameCanvas({
                 const data = await response.json();
                 walletAddress = data.walletAddress;
             } else {
-                const response = await fetch('/api/wallet', {
+                const response = await fetch(`${API_BASE_URL}/api/player/wallet`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({})

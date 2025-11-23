@@ -34,7 +34,7 @@ player.put('/:id', async (c) => {
     try {
         const id = c.req.param('id')
         const body = await c.req.json()
-        const { biography, score, interests, level, name, avatarColor } = body
+        const { biography, score, interests, level, name, avatarColor, userName } = body
         
         const collection = await getPlayersCollection()
         
@@ -48,6 +48,7 @@ player.put('/:id', async (c) => {
         if (level !== undefined) updateData.level = level
         if (name !== undefined) updateData.name = name
         if (avatarColor !== undefined) updateData.avatarColor = avatarColor
+        if (userName !== undefined) updateData.userName = userName
         
         const result = await collection.findOneAndUpdate(
             { _id: new ObjectId(id) },
@@ -144,7 +145,7 @@ player.post('/:id/interests', async (c) => {
 // Generate or retrieve a server wallet for the user
 player.post('/wallet', async (c) => {
     try {
-        const { publicAddress } = await c.req.json();
+        const { publicAddress, playerId } = await c.req.json();
         const playersCollection = await getPlayersCollection();
         const adminCollection = await getAdminCollection();
 
@@ -157,14 +158,23 @@ player.post('/wallet', async (c) => {
 
         if (publicAddress) {
             // Retrieve the encrypted private key for the existing wallet
-            const player = await playersCollection.findOne({ walletAddress: publicAddress });
-            if (!player) {
-                return c.json({ error: 'Wallet not found' }, 404);
+            // First try to find by playerId if provided
+            let playerDoc = null;
+            if (playerId) {
+                playerDoc = await playersCollection.findOne({ _id: new ObjectId(playerId), walletAddress: publicAddress });
+            }
+            // If not found by playerId, try by walletAddress only
+            if (!playerDoc) {
+                playerDoc = await playersCollection.findOne({ walletAddress: publicAddress });
+            }
+            
+            if (!playerDoc || !playerDoc.encryptedPrivateKey) {
+                return c.json({ error: 'Wallet not found or not stored on server' }, 404);
             }
 
             // Decrypt the private key
             const decipher = crypto.createDecipher('aes-256-cbc', masterKey);
-            let decrypted = decipher.update(player.encryptedPrivateKey, 'hex', 'utf8');
+            let decrypted = decipher.update(playerDoc.encryptedPrivateKey, 'hex', 'utf8');
             decrypted += decipher.final('utf8');
 
             return c.json({ walletAddress: publicAddress, privateKey: decrypted });
@@ -177,13 +187,27 @@ player.post('/wallet', async (c) => {
             let encrypted = cipher.update(wallet.privateKey, 'utf8', 'hex');
             encrypted += cipher.final('hex');
 
-            // Save the wallet in the database
-            const newPlayer = {
-                walletAddress: wallet.address,
-                encryptedPrivateKey: encrypted,
-                createdAt: new Date(),
-            };
-            await playersCollection.insertOne(newPlayer);
+            // If playerId is provided, update existing player, otherwise create new
+            if (playerId) {
+                await playersCollection.updateOne(
+                    { _id: new ObjectId(playerId) },
+                    { 
+                        $set: { 
+                            walletAddress: wallet.address,
+                            encryptedPrivateKey: encrypted,
+                            lastActive: new Date()
+                        } 
+                    }
+                );
+            } else {
+                // Save the wallet in the database as new player
+                const newPlayer = {
+                    walletAddress: wallet.address,
+                    encryptedPrivateKey: encrypted,
+                    createdAt: new Date(),
+                };
+                await playersCollection.insertOne(newPlayer);
+            }
 
             return c.json({ walletAddress: wallet.address });
         }

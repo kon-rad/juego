@@ -7,10 +7,13 @@ export interface MongoDBPlayer {
     _id?: string;       // MongoDB ObjectId (from response)
     worldId?: string;
     name: string;
+    userName?: string;
     avatarColor: string;
     x: number;
     y: number;
     isAI: boolean;
+    biography?: string;
+    interests?: string[];
     lastActive?: Date;
     createdAt?: Date;
 }
@@ -221,6 +224,7 @@ export async function updatePlayerProfile(
         interests?: string[];
         level?: number;
         name?: string;
+        userName?: string;
         avatarColor?: string;
     }
 ): Promise<MongoDBPlayer | null> {
@@ -389,14 +393,23 @@ export async function createTeacher(
     }
 }
 
+export interface EvaluationResult {
+    score: number; // Score from 1-10
+    feedback: string;
+}
+
 export interface TeacherChatResponse {
     response: string;
     teacherName: string;
     topic: string;
     isCorrect?: boolean;
+    score?: number; // Score from 1-10
     tokensAwarded?: number;
     nftAwarded?: boolean;
     newScore?: number;
+    evaluationResult?: EvaluationResult;
+    // Legacy field for backwards compatibility
+    toolCallResult?: any;
 }
 
 /**
@@ -443,6 +456,125 @@ export async function getTeacher(teacherId: string): Promise<Teacher | null> {
         return await response.json();
     } catch (error) {
         console.error('Error getting teacher:', error);
+        return null;
+    }
+}
+
+// ============== Teacher Chat History API Functions ==============
+
+export interface TeacherChatMessage {
+    role: 'user' | 'teacher';
+    content: string;
+    timestamp: Date;
+    speakerName?: string;
+}
+
+export interface TeacherChatHistoryResponse {
+    id?: string;
+    playerId: string;
+    teacherId: string;
+    teacherName: string;
+    topic: string;
+    messages: TeacherChatMessage[];
+    lastMessageAt: Date;
+    createdAt?: Date;
+    updatedAt?: Date;
+}
+
+/**
+ * Get all chat histories for a player
+ */
+export async function getPlayerTeacherChatHistories(playerId: string): Promise<TeacherChatHistoryResponse[]> {
+    try {
+        const response = await fetch(`${API_URL}/api/teacher/chat-history/player/${playerId}`);
+
+        if (!response.ok) {
+            console.error('Failed to get chat histories:', response.statusText);
+            return [];
+        }
+
+        const histories = await response.json();
+        // Parse dates
+        return histories.map((h: any) => ({
+            ...h,
+            lastMessageAt: new Date(h.lastMessageAt),
+            createdAt: h.createdAt ? new Date(h.createdAt) : undefined,
+            updatedAt: h.updatedAt ? new Date(h.updatedAt) : undefined,
+            messages: h.messages.map((m: any) => ({
+                ...m,
+                timestamp: new Date(m.timestamp)
+            }))
+        }));
+    } catch (error) {
+        console.error('Error getting chat histories:', error);
+        return [];
+    }
+}
+
+/**
+ * Get chat history for a specific player-teacher pair
+ */
+export async function getTeacherChatHistory(playerId: string, teacherId: string): Promise<TeacherChatHistoryResponse | null> {
+    try {
+        const response = await fetch(`${API_URL}/api/teacher/chat-history/${playerId}/${teacherId}`);
+
+        if (!response.ok) {
+            console.error('Failed to get chat history:', response.statusText);
+            return null;
+        }
+
+        const history = await response.json();
+        if (!history.messages || history.messages.length === 0) {
+            return null;
+        }
+
+        return {
+            ...history,
+            lastMessageAt: new Date(history.lastMessageAt),
+            createdAt: history.createdAt ? new Date(history.createdAt) : undefined,
+            updatedAt: history.updatedAt ? new Date(history.updatedAt) : undefined,
+            messages: history.messages.map((m: any) => ({
+                ...m,
+                timestamp: new Date(m.timestamp)
+            }))
+        };
+    } catch (error) {
+        console.error('Error getting chat history:', error);
+        return null;
+    }
+}
+
+/**
+ * Save/update chat history for a player-teacher pair
+ */
+export async function saveTeacherChatHistory(
+    playerId: string,
+    teacherId: string,
+    teacherName: string,
+    topic: string,
+    messages: { role: string; content: string; timestamp: Date; speakerName?: string }[]
+): Promise<TeacherChatHistoryResponse | null> {
+    try {
+        const response = await fetch(`${API_URL}/api/teacher/chat-history`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                playerId,
+                teacherId,
+                teacherName,
+                topic,
+                messages
+            })
+        });
+
+        if (!response.ok) {
+            console.error('Failed to save chat history:', response.statusText);
+            return null;
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error saving chat history:', error);
         return null;
     }
 }

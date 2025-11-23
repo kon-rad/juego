@@ -125,14 +125,40 @@ blockchain.post('/mint/tokens', async (c) => {
  */
 blockchain.post('/mint/nft', async (c) => {
   try {
-    const { address } = await c.req.json();
+    const { address, quizId, correctAnswers, totalQuestions, quizName } = await c.req.json();
 
     if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
       return c.json({ error: 'Invalid Ethereum address' }, 400);
     }
 
-    await blockchainService.mintNFT(address);
-    return c.json({ message: `Successfully minted NFT to ${address}` });
+    // Use defaults if not provided
+    const finalQuizId = quizId || 1;
+    const finalCorrectAnswers = correctAnswers ?? 5;
+    const finalTotalQuestions = totalQuestions ?? 5;
+    const finalQuizName = quizName || 'Demo Quiz';
+
+    // Validate inputs
+    if (finalTotalQuestions <= 0) {
+      return c.json({ error: 'Total questions must be greater than 0' }, 400);
+    }
+    if (finalCorrectAnswers > finalTotalQuestions) {
+      return c.json({ error: 'Correct answers cannot exceed total questions' }, 400);
+    }
+    if (finalQuizName.length > 100) {
+      return c.json({ error: 'Quiz name must be 100 characters or less' }, 400);
+    }
+
+    const result = await blockchainService.mintNFT(
+      address,
+      finalQuizId,
+      finalCorrectAnswers,
+      finalTotalQuestions,
+      finalQuizName
+    );
+    return c.json({ 
+      message: `Successfully minted NFT to ${address}`,
+      tokenId: result.tokenId
+    });
   } catch (error) {
     console.error('Error minting NFT:', error);
     return c.json(

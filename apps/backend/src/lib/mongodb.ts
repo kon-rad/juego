@@ -99,6 +99,7 @@ export interface PlayerProfile {
   _id?: ObjectId
   worldId?: string
   name: string
+  userName?: string
   avatarColor: string
   x: number
   y: number

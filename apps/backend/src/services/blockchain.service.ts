@@ -7,28 +7,15 @@ import crypto from 'crypto';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const CONTRACTS_CONFIG_PATH = path.resolve(
+  __dirname,
+  '../lib/contracts.json'
+);
+
 const DEPLOYED_ADDRESSES_PATH = path.resolve(
   __dirname,
   '../../../contracts/deployed-addresses.json'
 );
-
-// ABI for the methods we need
-const LEARN_TOKEN_ABI = [
-  'function totalSupply() view returns (uint256)',
-  'function balanceOf(address account) view returns (uint256)',
-  'function name() view returns (string)',
-  'function symbol() view returns (string)',
-  'function decimals() view returns (uint8)',
-  'function mint(address to, uint256 amount)'
-];
-
-const BADGE_NFT_ABI = [
-  'function totalSupply() view returns (uint256)',
-  'function balanceOf(address owner) view returns (uint256)',
-  'function name() view returns (string)',
-  'function symbol() view returns (string)',
-  'function mint(address to)'
-];
 
 export class BlockchainService {
   private provider: ethers.JsonRpcProvider;
@@ -36,37 +23,76 @@ export class BlockchainService {
   private badgeNFTContract: ethers.Contract;
   private adminWallet: ethers.Wallet;
 
+  private initialized: boolean = false;
+
   constructor() {
+    // Don't throw error in constructor - initialize lazily
+    // This allows the app to start even if blockchain isn't configured
+  }
+
+  private async ensureInitialized() {
+    if (this.initialized) return;
+
     const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
     const adminPrivateKey = process.env.ADMIN_PRIVATE_KEY;
 
     if (!adminPrivateKey) {
-      throw new Error('Admin wallet private key not configured in environment variables');
+      throw new Error('Admin wallet private key not configured. Set ADMIN_PRIVATE_KEY in environment variables.');
     }
 
-    this.provider = new ethers.JsonRpcProvider(rpcUrl);
-    this.adminWallet = new ethers.Wallet(adminPrivateKey, this.provider);
+    try {
+      this.provider = new ethers.JsonRpcProvider(rpcUrl);
+      this.adminWallet = new ethers.Wallet(adminPrivateKey, this.provider);
 
-    const deployedAddresses = JSON.parse(
-      fs.readFileSync(DEPLOYED_ADDRESSES_PATH, 'utf-8')
-    );
+      // Load contract config (ABI and addresses)
+      if (!fs.existsSync(CONTRACTS_CONFIG_PATH)) {
+        throw new Error(`Contracts config file not found at ${CONTRACTS_CONFIG_PATH}. Please copy contracts.json first.`);
+      }
 
-    this.learnTokenContract = new ethers.Contract(
-      deployedAddresses.learnToken,
-      LEARN_TOKEN_ABI,
-      this.adminWallet
-    );
-    this.badgeNFTContract = new ethers.Contract(
-      deployedAddresses.badgeNFT,
-      BADGE_NFT_ABI,
-      this.adminWallet
-    );
+      const contractsConfig = JSON.parse(
+        fs.readFileSync(CONTRACTS_CONFIG_PATH, 'utf-8')
+      );
+
+      if (!contractsConfig.learnToken || !contractsConfig.badgeNFT) {
+        throw new Error('Contract configuration not found in contracts.json. Please ensure the file is properly configured.');
+      }
+
+      if (!contractsConfig.learnToken.address || !contractsConfig.badgeNFT.address) {
+        throw new Error('Contract addresses not found in contracts.json.');
+      }
+
+      if (!contractsConfig.learnToken.abi || !contractsConfig.badgeNFT.abi) {
+        throw new Error('Contract ABIs not found in contracts.json.');
+      }
+
+      this.learnTokenContract = new ethers.Contract(
+        contractsConfig.learnToken.address,
+        contractsConfig.learnToken.abi,
+        this.adminWallet
+      );
+      this.badgeNFTContract = new ethers.Contract(
+        contractsConfig.badgeNFT.address,
+        contractsConfig.badgeNFT.abi,
+        this.adminWallet
+      );
+
+      this.initialized = true;
+      console.log('Blockchain service initialized successfully');
+      console.log(`  RPC URL: ${rpcUrl}`);
+      console.log(`  Admin wallet: ${this.adminWallet.address}`);
+      console.log(`  LearnToken: ${contractsConfig.learnToken.address}`);
+      console.log(`  BadgeNFT: ${contractsConfig.badgeNFT.address}`);
+    } catch (error) {
+      console.error('Failed to initialize blockchain service:', error);
+      throw error;
+    }
   }
 
   /**
    * Get the total number of NFT badges minted
    */
   async getTotalNFTsMinted(): Promise<string> {
+    await this.ensureInitialized();
     try {
       const totalSupply = await this.badgeNFTContract.totalSupply();
       return totalSupply.toString();
@@ -80,6 +106,7 @@ export class BlockchainService {
    * Get the total supply of Learn Tokens
    */
   async getTotalTokenSupply(): Promise<string> {
+    await this.ensureInitialized();
     try {
       const totalSupply = await this.learnTokenContract.totalSupply();
       const decimals = await this.learnTokenContract.decimals();
@@ -95,6 +122,7 @@ export class BlockchainService {
    * Get NFT balance for a specific address
    */
   async getNFTBalance(address: string): Promise<string> {
+    await this.ensureInitialized();
     try {
       const balance = await this.badgeNFTContract.balanceOf(address);
       return balance.toString();
@@ -108,6 +136,7 @@ export class BlockchainService {
    * Get token balance for a specific address
    */
   async getTokenBalance(address: string): Promise<string> {
+    await this.ensureInitialized();
     try {
       const balance = await this.learnTokenContract.balanceOf(address);
       const decimals = await this.learnTokenContract.decimals();
@@ -122,6 +151,7 @@ export class BlockchainService {
    * Get comprehensive blockchain stats
    */
   async getBlockchainStats() {
+    await this.ensureInitialized();
     try {
       const [totalNFTs, totalTokens, tokenName, tokenSymbol, nftName, nftSymbol] = await Promise.all([
         this.getTotalNFTsMinted(),
@@ -156,6 +186,7 @@ export class BlockchainService {
    * Get player stats (both NFTs and tokens)
    */
   async getPlayerStats(address: string) {
+    await this.ensureInitialized();
     try {
       const [nftBalance, tokenBalance] = await Promise.all([
         this.getNFTBalance(address),
@@ -177,29 +208,48 @@ export class BlockchainService {
    * Mint Learn Tokens to a specific address
    */
   async mintTokens(to: string, amount: string): Promise<void> {
+    await this.ensureInitialized();
     try {
       const decimals = await this.learnTokenContract.decimals();
       const amountInWei = ethers.parseUnits(amount, decimals);
       const tx = await this.learnTokenContract.mint(to, amountInWei);
-      await tx.wait();
-      console.log(`Minted ${amount} tokens to ${to}`);
+      const receipt = await tx.wait();
+      console.log(`Minted ${amount} tokens to ${to}, tx: ${receipt.hash}`);
     } catch (error) {
       console.error('Error minting tokens:', error);
-      throw new Error('Failed to mint tokens');
+      throw new Error(`Failed to mint tokens: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   /**
-   * Mint Badge NFTs to a specific address
+   * Mint Badge NFT to a specific address
    */
-  async mintNFT(to: string): Promise<void> {
+  async mintNFT(
+    to: string,
+    quizId: number = 1,
+    correctAnswers: number = 5,
+    totalQuestions: number = 5,
+    quizName: string = 'Demo Quiz'
+  ): Promise<{ tokenId: string }> {
+    await this.ensureInitialized();
     try {
-      const tx = await this.badgeNFTContract.mint(to);
-      await tx.wait();
-      console.log(`Minted NFT to ${to}`);
+      const tx = await this.badgeNFTContract.mintBadge(
+        to,
+        quizId,
+        correctAnswers,
+        totalQuestions,
+        quizName
+      );
+      const receipt = await tx.wait();
+      console.log(`Minted NFT to ${to}, tx: ${receipt.hash}`);
+      
+      // Get the token ID from the event or return a placeholder
+      // The contract returns the tokenId, but we need to extract it from the transaction
+      // For now, we'll return the transaction hash as a reference
+      return { tokenId: receipt.hash };
     } catch (error) {
       console.error('Error minting NFT:', error);
-      throw new Error('Failed to mint NFT');
+      throw new Error(`Failed to mint NFT: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -229,5 +279,14 @@ export class BlockchainService {
   }
 }
 
-// Export singleton instance
-export const blockchainService = new BlockchainService();
+// Export singleton instance - lazy initialization
+let blockchainServiceInstance: BlockchainService | null = null;
+
+export const getBlockchainService = (): BlockchainService => {
+  if (!blockchainServiceInstance) {
+    blockchainServiceInstance = new BlockchainService();
+  }
+  return blockchainServiceInstance;
+};
+
+export const blockchainService = getBlockchainService();

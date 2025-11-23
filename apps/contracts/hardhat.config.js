@@ -20,12 +20,12 @@ module.exports = {
     ronin: {
       chainId: 2020,
       url: "https://api.roninchain.com/rpc",
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      accounts: process.env.PRIVATE_KEY_PROD || process.env.PRIVATE_KEY_RONIN || process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY_PROD || process.env.PRIVATE_KEY_RONIN || process.env.PRIVATE_KEY] : [],
     },
     saigon: {
       chainId: 2021,
       url: "https://saigon-testnet.roninchain.com/rpc",
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      accounts: process.env.PRIVATE_KEY_DEV || process.env.PRIVATE_KEY_SAIGON || process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY_DEV || process.env.PRIVATE_KEY_SAIGON || process.env.PRIVATE_KEY] : [],
     },
   },
   namedAccounts: {

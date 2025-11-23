@@ -10,6 +10,8 @@
     "deploy:ronin": "hardhat deploy --network ronin",
     "verify:saigon": "hardhat --network saigon sourcify --endpoint https://sourcify.roninchain.com/server",
     "verify:ronin": "hardhat --network ronin sourcify --endpoint https://sourcify.roninchain.com/server",
+    "verify:wallet": "node scripts/verify-wallet.js",
+    "update:config": "node scripts/update-contracts-config.js",
     "clean": "hardhat clean"
   },
   "keywords": ["ronin", "nft", "erc20", "erc721", "game"],
