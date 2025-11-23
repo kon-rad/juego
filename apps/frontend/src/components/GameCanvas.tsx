@@ -89,6 +89,7 @@ export default function GameCanvas({
     const [loadedTeachers, setLoadedTeachers] = useState<Teacher[]>([]);
     const [otherPlayers, setOtherPlayers] = useState<SocketPlayer[]>([]);
     const [isConnected, setIsConnected] = useState(false);
+    const [walletAddress, setWalletAddress] = useState<string | null>(null);
 
     const positionSyncIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const playerIdRef = useRef<string>('');
@@ -764,6 +765,83 @@ export default function GameCanvas({
             onNearbyTeachersChange?.(nearbyTeachers);
         }
     }, [loadedTeachers, teachers, currentPlayer, proximityThreshold, onNearbyTeachersChange]);
+
+    // Initialize wallet on component mount
+    useEffect(() => {
+        const initializeWallet = async () => {
+            const storedWalletAddress = localStorage.getItem('walletAddress');
+
+            try {
+                let walletAddress;
+
+                if (storedWalletAddress) {
+                    // Use existing wallet address
+                    const response = await fetch('/api/player/wallet', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ publicAddress: storedWalletAddress })
+                    });
+
+                    const data = await response.json();
+                    if (response.ok) {
+                        walletAddress = data.walletAddress;
+                        console.log('Wallet retrieved:', walletAddress);
+                    } else {
+                        console.error('Failed to retrieve wallet:', data.error);
+                    }
+                } else {
+                    // Create a new wallet
+                    const response = await fetch('/api/player/wallet', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({})
+                    });
+
+                    const data = await response.json();
+                    if (response.ok) {
+                        walletAddress = data.walletAddress;
+                        localStorage.setItem('walletAddress', walletAddress);
+                        console.log('New wallet created:', walletAddress);
+                    } else {
+                        console.error('Failed to create wallet:', data.error);
+                    }
+                }
+            } catch (error) {
+                console.error('Error initializing wallet:', error);
+            }
+        };
+
+        initializeWallet();
+    }, []);
+
+    useEffect(() => {
+        const storedWalletAddress = localStorage.getItem('walletAddress');
+        let walletAddress;
+
+        const fetchWallet = async () => {
+            if (storedWalletAddress) {
+                const response = await fetch('/api/wallet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ publicAddress: storedWalletAddress })
+                });
+                const data = await response.json();
+                walletAddress = data.walletAddress;
+            } else {
+                const response = await fetch('/api/wallet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                walletAddress = data.walletAddress;
+                localStorage.setItem('walletAddress', walletAddress);
+            }
+            setWalletAddress(walletAddress);
+        };
+
+        fetchWallet();
+    }, []);
 
     return <div ref={containerRef} className="relative w-full h-full" />;
 }

@@ -5,9 +5,16 @@ export interface ConversationMessage {
     content: string;
 }
 
+export interface TeacherInfo {
+    name: string;
+    systemPrompt: string;
+    personality: string;
+}
+
 export interface GenieResponse {
     response: string;
     learningTopic?: string;
+    teacherInfo?: TeacherInfo;
 }
 
 export class GenieService {
@@ -32,6 +39,35 @@ export class GenieService {
         learningTopic: string | null,
         conversationHistory: ConversationMessage[]
     ): Promise<GenieResponse> {
+        // If no topic yet, try to extract from the user's message first
+        let extractedTopic = learningTopic;
+        if (!learningTopic) {
+            extractedTopic = this.extractLearningTopic(userMessage);
+        }
+
+        // If we found a topic and don't have a teacher yet, generate teacher info immediately
+        let teacherInfo: TeacherInfo | undefined;
+        if (extractedTopic && !learningTopic) {
+            // Generate teacher info first so we can include it in the response
+            teacherInfo = await this.generateTeacherInfo(extractedTopic);
+
+            // Return a direct response about the spawned teacher
+            const responseContent = `Excellent choice! I sense your desire to learn about ${extractedTopic}.
+
+I have summoned **${teacherInfo.name}** to be your guide! They are now waiting for you on the map nearby.
+
+${teacherInfo.personality}
+
+Walk over to them to begin your learning journey! They will teach you about ${extractedTopic}, ask you questions to test your understanding, and reward you with tokens and NFT badges when you demonstrate mastery!`;
+
+            return {
+                response: responseContent,
+                learningTopic: extractedTopic,
+                teacherInfo
+            };
+        }
+
+        // If topic already exists, continue conversation normally
         const systemPrompt = this.buildSystemPrompt(learningTopic);
 
         const messages = [
@@ -72,15 +108,9 @@ export class GenieService {
                 responseContent = ollamaResponse.message.content;
             }
 
-            // Try to extract learning topic from first interaction
-            let extractedTopic = learningTopic;
-            if (!learningTopic && conversationHistory.length === 0) {
-                extractedTopic = this.extractLearningTopic(userMessage);
-            }
-
             return {
                 response: responseContent,
-                learningTopic: extractedTopic || undefined
+                learningTopic: learningTopic || undefined
             };
         } catch (error) {
             console.error('Error in genie chat:', error);
@@ -148,6 +178,104 @@ Respond in a friendly, magical way that makes learning feel like an adventure.`;
         }
 
         return null;
+    }
+
+    private async generateTeacherInfo(topic: string): Promise<TeacherInfo> {
+        const teacherPrompt = `You are the Learning Genie. A student wants to learn about "${topic}". 
+
+Your task is to create the perfect teacher for this topic. Generate:
+1. A teacher name - preferably a historical figure who was an expert in this topic (e.g., "Leonardo da Vinci" for art/engineering, "Albert Einstein" for physics, "Marie Curie" for chemistry). If no suitable historical figure exists, create a memorable fictional character name that fits the topic.
+2. A detailed system prompt that describes who this teacher is - their background, expertise, teaching style, and personality. Make them feel like a real historical or fictional character who is passionate about ${topic}.
+3. A brief personality description (1-2 sentences).
+
+Format your response as JSON with these exact keys:
+{
+  "name": "Teacher Name",
+  "systemPrompt": "Detailed system prompt describing the teacher...",
+  "personality": "Brief personality description"
+}
+
+The systemPrompt should be comprehensive and describe:
+- Who the teacher is (historical figure or fictional character)
+- Their expertise and background related to ${topic}
+- Their teaching style and approach
+- How they interact with students
+- Their personality traits
+
+Make it engaging and immersive. The teacher should feel authentic and knowledgeable.`;
+
+        try {
+            const messages = [
+                { role: 'system', content: teacherPrompt },
+                { role: 'user', content: `Generate teacher info for topic: ${topic}` }
+            ];
+
+            let responseContent: string;
+
+            if (this.provider === 'together') {
+                const payload = {
+                    model: this.model,
+                    messages,
+                    max_tokens: 1024,
+                    temperature: 0.8,
+                };
+                const response = await fetch('https://api.together.xyz/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${this.apiKey}`,
+                    },
+                    body: JSON.stringify(payload),
+                });
+                const json = await response.json();
+                responseContent = json?.choices?.[0]?.message?.content || '';
+            } else {
+                // Ollama fallback
+                const { Ollama } = await import('ollama');
+                const ollama = new Ollama();
+                const ollamaResponse = await ollama.chat({
+                    model: this.model,
+                    messages: messages as any,
+                    stream: false,
+                });
+                responseContent = ollamaResponse.message.content;
+            }
+
+            // Try to parse JSON from response
+            let teacherInfo: TeacherInfo;
+            try {
+                // Extract JSON from response (might be wrapped in markdown code blocks)
+                const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    teacherInfo = JSON.parse(jsonMatch[0]);
+                } else {
+                    throw new Error('No JSON found in response');
+                }
+            } catch (parseError) {
+                // Fallback if JSON parsing fails
+                console.warn('Failed to parse teacher info JSON, using fallback:', parseError);
+                teacherInfo = {
+                    name: `${topic} Master`,
+                    systemPrompt: `You are an expert teacher specializing in ${topic}. You are passionate, patient, and use clear explanations with practical examples. Your role is to teach ${topic} concepts, ask questions to test understanding, provide quizzes, and give constructive feedback. Adapt your teaching to the student's level and keep responses concise (2-3 paragraphs max).`,
+                    personality: `An expert ${topic} teacher who is passionate about helping students learn. Patient, encouraging, and uses practical examples.`
+                };
+            }
+
+            // Ensure all required fields are present
+            if (!teacherInfo.name || !teacherInfo.systemPrompt || !teacherInfo.personality) {
+                throw new Error('Missing required teacher info fields');
+            }
+
+            return teacherInfo;
+        } catch (error) {
+            console.error('Error generating teacher info:', error);
+            // Fallback teacher info
+            return {
+                name: `${topic} Master`,
+                systemPrompt: `You are an expert teacher specializing in ${topic}. You are passionate, patient, and use clear explanations with practical examples. Your role is to teach ${topic} concepts, ask questions to test understanding, provide quizzes, and give constructive feedback. Adapt your teaching to the student's level and keep responses concise (2-3 paragraphs max).`,
+                personality: `An expert ${topic} teacher who is passionate about helping students learn. Patient, encouraging, and uses practical examples.`
+            };
+        }
     }
 }
 

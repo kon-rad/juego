@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Sparkles } from 'lucide-react';
 import GenieSvg from './GenieSvg';
+import { getBlockchainStats, type BlockchainStats } from '@/lib/blockchain-api';
 
 interface GameStatePanelProps {
     currentPosition?: { x: number; y: number };
@@ -45,6 +46,8 @@ export default function GameStatePanel({
     });
     const [isSaving, setIsSaving] = useState(false);
     const [saveMessage, setSaveMessage] = useState('');
+    const [blockchainStats, setBlockchainStats] = useState<BlockchainStats | null>(null);
+    const [isLoadingBlockchain, setIsLoadingBlockchain] = useState(false);
 
     const formatCoordinate = (value: number | undefined): string => {
         if (value === undefined) return '---';
@@ -56,6 +59,29 @@ export default function GameStatePanel({
             setSettings(currentSettings);
         }
     }, [currentSettings]);
+
+    // Fetch blockchain stats on mount and periodically
+    useEffect(() => {
+        const fetchBlockchainData = async () => {
+            setIsLoadingBlockchain(true);
+            try {
+                const stats = await getBlockchainStats();
+                setBlockchainStats(stats);
+            } catch (error) {
+                console.error('Error fetching blockchain stats:', error);
+            } finally {
+                setIsLoadingBlockchain(false);
+            }
+        };
+
+        // Fetch immediately
+        fetchBlockchainData();
+
+        // Refresh every 30 seconds
+        const interval = setInterval(fetchBlockchainData, 30000);
+
+        return () => clearInterval(interval);
+    }, []);
 
     const handleSaveSettings = async () => {
         setIsSaving(true);
@@ -150,6 +176,27 @@ export default function GameStatePanel({
                         <span className="text-matrix-green">{fps}</span>
                     </div>
                     <div className="h-8 w-px bg-matrix-green/30"></div>
+                    {/* Blockchain Stats */}
+                    {blockchainStats && (
+                        <>
+                            <div className="flex items-center gap-2" title={`${blockchainStats.nfts.name} (${blockchainStats.nfts.symbol})`}>
+                                <span className="text-ghost-green uppercase tracking-wider">NFTs:</span>
+                                <span className="text-amber-400 font-bold">{blockchainStats.nfts.totalMinted}</span>
+                            </div>
+                            <div className="flex items-center gap-2" title={`${blockchainStats.tokens.name} (${blockchainStats.tokens.symbol})`}>
+                                <span className="text-ghost-green uppercase tracking-wider">Tokens:</span>
+                                <span className="text-amber-400 font-bold">
+                                    {parseFloat(blockchainStats.tokens.totalSupply).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                </span>
+                            </div>
+                            <div className="h-8 w-px bg-matrix-green/30"></div>
+                        </>
+                    )}
+                    {isLoadingBlockchain && !blockchainStats && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-ghost-green uppercase tracking-wider">Loading blockchain...</span>
+                        </div>
+                    )}
                     {/* Genie Button */}
                     <button
                         onClick={onSummonGenie}

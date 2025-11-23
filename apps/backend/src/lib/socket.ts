@@ -12,6 +12,7 @@ export interface Player {
 
 // In-memory store of connected players
 const players: Map<string, Player> = new Map();
+let socketServer: SocketServer | null = null;
 
 export function initSocketServer(httpServer: HttpServer): SocketServer {
     const io = new SocketServer(httpServer, {
@@ -20,6 +21,8 @@ export function initSocketServer(httpServer: HttpServer): SocketServer {
             methods: ['GET', 'POST']
         }
     });
+    
+    socketServer = io;
 
     io.on('connection', (socket: Socket) => {
         console.log(`Client connected: ${socket.id}`);
@@ -77,4 +80,8 @@ export function getConnectedPlayers(): Player[] {
 
 export function removePlayer(playerId: string): void {
     players.delete(playerId);
+}
+
+export function getSocketServer(): SocketServer | null {
+    return socketServer;
 }

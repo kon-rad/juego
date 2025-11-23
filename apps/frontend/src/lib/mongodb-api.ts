@@ -359,13 +359,21 @@ export async function createTeacher(
     topic: string,
     x: number,
     y: number,
-    createdBy: string
+    createdBy: string,
+    teacherInfo?: { name: string; systemPrompt: string; personality: string }
 ): Promise<Teacher | null> {
     try {
+        const body: any = { topic, x, y, createdBy };
+        if (teacherInfo) {
+            body.name = teacherInfo.name;
+            body.systemPrompt = teacherInfo.systemPrompt;
+            body.personality = teacherInfo.personality;
+        }
+        
         const response = await fetch(`${API_URL}/api/teacher`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ topic, x, y, createdBy })
+            body: JSON.stringify(body)
         });
 
         if (!response.ok) {
@@ -423,6 +431,119 @@ export async function getTeacher(teacherId: string): Promise<Teacher | null> {
         return await response.json();
     } catch (error) {
         console.error('Error getting teacher:', error);
+        return null;
+    }
+}
+
+// ============== Chat API Functions ==============
+
+export interface Chat {
+    id: string;
+    participant1Id: string;
+    participant2Id: string;
+    participant1Name?: string;
+    participant2Name?: string;
+    participant1AvatarColor?: string;
+    participant2AvatarColor?: string;
+    lastMessage?: string;
+    lastMessageAt?: Date;
+    otherParticipantId?: string;
+    otherParticipantName?: string;
+    otherParticipantAvatarColor?: string;
+    createdAt?: Date;
+    updatedAt?: Date;
+}
+
+export interface ChatMessage {
+    id: string;
+    chatId: string;
+    senderId: string;
+    senderName?: string;
+    senderAvatarColor?: string;
+    content: string;
+    createdAt: Date;
+}
+
+/**
+ * Get or create a chat conversation between two players
+ */
+export async function getOrCreateChat(participant1Id: string, participant2Id: string): Promise<Chat | null> {
+    try {
+        const response = await fetch(`${API_URL}/api/chat/conversation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ participant1Id, participant2Id })
+        });
+
+        if (!response.ok) {
+            console.error('Failed to get/create chat:', response.statusText);
+            return null;
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error getting/creating chat:', error);
+        return null;
+    }
+}
+
+/**
+ * Get all chat conversations for a player
+ */
+export async function getPlayerConversations(playerId: string): Promise<Chat[]> {
+    try {
+        const response = await fetch(`${API_URL}/api/chat/${playerId}/conversations`);
+
+        if (!response.ok) {
+            console.error('Failed to get conversations:', response.statusText);
+            return [];
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error getting conversations:', error);
+        return [];
+    }
+}
+
+/**
+ * Get messages for a chat
+ */
+export async function getChatMessages(chatId: string): Promise<ChatMessage[]> {
+    try {
+        const response = await fetch(`${API_URL}/api/chat/${chatId}/messages`);
+
+        if (!response.ok) {
+            console.error('Failed to get messages:', response.statusText);
+            return [];
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error getting messages:', error);
+        return [];
+    }
+}
+
+/**
+ * Send a message in a chat
+ */
+export async function sendChatMessage(chatId: string, senderId: string, content: string): Promise<ChatMessage | null> {
+    try {
+        const response = await fetch(`${API_URL}/api/chat/${chatId}/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ senderId, content })
+        });
+
+        if (!response.ok) {
+            console.error('Failed to send message:', response.statusText);
+            return null;
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error sending message:', error);
         return null;
     }
 }

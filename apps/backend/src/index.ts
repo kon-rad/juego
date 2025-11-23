@@ -10,6 +10,8 @@ import { player } from './routes/player.js'
 import { vapi } from './routes/vapi.js'
 import { genie } from './routes/genie.js'
 import { teacher } from './routes/teacher.js'
+import { chat } from './routes/chat.js'
+import blockchain from './routes/blockchain.js'
 
 const app = new Hono()
 
@@ -22,6 +24,8 @@ app.route('/api/player', player)
 app.route('/api/vapi', vapi)
 app.route('/api/genie', genie)
 app.route('/api/teacher', teacher)
+app.route('/api/chat', chat)
+app.route('/api/blockchain', blockchain)
 
 app.get('/', (c) => {
   return c.text('Juego Backend API')

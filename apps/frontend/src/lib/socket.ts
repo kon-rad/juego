@@ -93,3 +93,24 @@ export function onDisconnect(callback: () => void): () => void {
     s.on('disconnect', callback);
     return () => s.off('disconnect', callback);
 }
+
+// Chat event handlers
+export interface ChatMessageEvent {
+    chatId: string;
+    message: {
+        id: string;
+        chatId: string;
+        senderId: string;
+        senderName?: string;
+        senderAvatarColor?: string;
+        content: string;
+        createdAt: Date;
+    };
+    recipientId: string;
+}
+
+export function onChatMessage(callback: (data: ChatMessageEvent) => void): () => void {
+    const s = getSocket();
+    s.on('chat:message', callback);
+    return () => s.off('chat:message', callback);
+}

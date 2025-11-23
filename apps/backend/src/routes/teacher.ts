@@ -1,10 +1,14 @@
 import { Hono } from 'hono'
-import { getTeachersCollection, getGameWorldsCollection, ObjectId } from '../lib/mongodb.js'
+import { getTeachersCollection, getGameWorldsCollection, getPlayersCollection, ObjectId } from '../lib/mongodb.js'
 import type { Teacher } from '../lib/mongodb.js'
 
 const teacher = new Hono()
 
 const TEACHER_RADIUS = 100 // Minimum distance between teachers
+
+// Reward constants
+const TOKENS_PER_CORRECT_ANSWER = 10
+const TOKENS_FOR_NFT_BADGE = 100 // Award NFT badge every 100 tokens earned
 
 // Get all teachers in the world
 teacher.get('/', async (c) => {
@@ -95,7 +99,7 @@ teacher.post('/check-position', async (c) => {
 teacher.post('/', async (c) => {
     try {
         const body = await c.req.json()
-        const { topic, x, y, createdBy } = body
+        const { topic, x, y, createdBy, name, systemPrompt, personality } = body
 
         if (!topic || x === undefined || y === undefined || !createdBy) {
             return c.json({ error: 'topic, x, y, and createdBy are required' }, 400)
@@ -145,10 +149,10 @@ teacher.post('/', async (c) => {
             }, 409)
         }
 
-        // Generate teacher name and personality based on topic
-        const teacherName = `${topic} Master`
-        const personality = `An expert ${topic} teacher who is passionate about helping students learn. Patient, encouraging, and uses practical examples.`
-        const systemPrompt = `You are ${teacherName}, a dedicated teacher specializing in ${topic}.
+        // Use provided teacher info or generate defaults
+        const teacherName = name || `${topic} Master`
+        const teacherPersonality = personality || `An expert ${topic} teacher who is passionate about helping students learn. Patient, encouraging, and uses practical examples.`
+        const teacherSystemPrompt = systemPrompt || `You are ${teacherName}, a dedicated teacher specializing in ${topic}.
 
 Your role is to:
 1. Teach ${topic} concepts in an engaging, clear way
@@ -165,8 +169,8 @@ Keep responses concise (2-3 paragraphs max) and focus on one concept at a time.`
             worldId: world!._id.toString(),
             topic,
             name: teacherName,
-            systemPrompt,
-            personality,
+            systemPrompt: teacherSystemPrompt,
+            personality: teacherPersonality,
             x,
             y,
             avatarColor: '#FFD700', // Gold color for teachers

@@ -1,6 +1,9 @@
 import { Hono } from 'hono'
 import { getPlayersCollection, ObjectId } from '../lib/mongodb.js'
 import type { PlayerProfile } from '../lib/mongodb.js'
+import { ethers } from 'ethers';
+import { getAdminCollection } from '../lib/mongodb.js';
+import crypto from 'crypto';
 
 const player = new Hono()
 
@@ -137,5 +140,57 @@ player.post('/:id/interests', async (c) => {
         return c.json({ error: 'Failed to add player interest' }, 500)
     }
 })
+
+// Generate or retrieve a server wallet for the user
+player.post('/wallet', async (c) => {
+    try {
+        const { publicAddress } = await c.req.json();
+        const playersCollection = await getPlayersCollection();
+        const adminCollection = await getAdminCollection();
+
+        // Fetch the master key from the admin collection
+        const adminDoc = await adminCollection.findOne({ key: 'masterKey' });
+        if (!adminDoc) {
+            return c.json({ error: 'Master key not found' }, 500);
+        }
+        const masterKey = adminDoc.value;
+
+        if (publicAddress) {
+            // Retrieve the encrypted private key for the existing wallet
+            const player = await playersCollection.findOne({ walletAddress: publicAddress });
+            if (!player) {
+                return c.json({ error: 'Wallet not found' }, 404);
+            }
+
+            // Decrypt the private key
+            const decipher = crypto.createDecipher('aes-256-cbc', masterKey);
+            let decrypted = decipher.update(player.encryptedPrivateKey, 'hex', 'utf8');
+            decrypted += decipher.final('utf8');
+
+            return c.json({ walletAddress: publicAddress, privateKey: decrypted });
+        } else {
+            // Generate a new wallet
+            const wallet = ethers.Wallet.createRandom();
+
+            // Encrypt the private key
+            const cipher = crypto.createCipher('aes-256-cbc', masterKey);
+            let encrypted = cipher.update(wallet.privateKey, 'utf8', 'hex');
+            encrypted += cipher.final('hex');
+
+            // Save the wallet in the database
+            const newPlayer = {
+                walletAddress: wallet.address,
+                encryptedPrivateKey: encrypted,
+                createdAt: new Date(),
+            };
+            await playersCollection.insertOne(newPlayer);
+
+            return c.json({ walletAddress: wallet.address });
+        }
+    } catch (error) {
+        console.error('Error handling wallet:', error);
+        return c.json({ error: 'Failed to handle wallet' }, 500);
+    }
+});
 
 export { player }

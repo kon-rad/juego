@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import GameCanvas, { NearbyPlayer, NearbyTeacher } from '@/components/GameCanvas';
-import AgentPanel, { AgentLog, ActiveTeacher } from '@/components/AgentPanel';
+import AgentPanel, { AgentLog, ActiveTeacher, ActivePlayerChat } from '@/components/AgentPanel';
 import GameStatePanel from '@/components/GameStatePanel';
 import MenuBar from '@/components/MenuBar';
-import { Teacher } from '@/lib/mongodb-api';
+import { Teacher, getOrCreateChat } from '@/lib/mongodb-api';
+import { getMongoDBPlayerId } from '@/lib/player';
 
 export default function Home() {
   const [logs, setLogs] = useState<AgentLog[]>([]);
@@ -20,6 +21,8 @@ export default function Home() {
   const [nearbyTeachers, setNearbyTeachers] = useState<NearbyTeacher[]>([]);
   const [activeTab, setActiveTab] = useState<'thinking' | 'conversations' | 'voice' | 'settings'>('thinking');
   const [activeTeacher, setActiveTeacher] = useState<ActiveTeacher | null>(null);
+  const [activePlayerChat, setActivePlayerChat] = useState<ActivePlayerChat | null>(null);
+  const [mongoDBPlayerId, setMongoDBPlayerId] = useState<string | null>(null);
 
   const handleAgentAction = (action: any) => {
     const newLog: AgentLog = {
@@ -43,15 +46,61 @@ export default function Home() {
     setNearbyPlayers(players);
   };
 
-  const handleStartConversation = (player: NearbyPlayer) => {
-    console.log('Starting conversation with:', player.name);
-    const newLog: AgentLog = {
-      id: Math.random().toString(36).substring(7),
-      timestamp: new Date(),
-      type: 'converse',
-      content: { message: `Started conversation with ${player.name}` }
-    };
-    setLogs(prev => [newLog, ...prev]);
+  const handleStartConversation = async (player: NearbyPlayer) => {
+    // Get MongoDB IDs for both players
+    const currentPlayerMongoId = mongoDBPlayerId || getMongoDBPlayerId();
+    
+    if (!currentPlayerMongoId) {
+      console.error('Cannot start conversation: MongoDB player ID not found');
+      return;
+    }
+
+    // For the nearby player, we need to look up their MongoDB ID
+    // Since we only have their socket ID, we'll need to find them by name/avatar
+    // For now, let's try to find them by creating a lookup
+    // Actually, the best approach is to store MongoDB IDs in socket player data
+    // But for now, let's try to find the player by matching socket ID or name
+    
+    try {
+      // Try to find the other player's MongoDB ID
+      // We'll need to search for them by name and avatarColor
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/game/players`);
+      const allPlayers = await response.json();
+      
+      // Find the player by matching name and avatarColor (since socket ID won't match)
+      const otherPlayer = allPlayers.find((p: any) => 
+        p.name === player.name && p.avatarColor === player.avatarColor
+      );
+      
+      if (!otherPlayer) {
+        console.error('Could not find other player in database');
+        return;
+      }
+      
+      const otherPlayerMongoId = otherPlayer.id;
+      
+      // Get or create chat with the nearby player using MongoDB IDs
+      const chat = await getOrCreateChat(currentPlayerMongoId, otherPlayerMongoId);
+      
+      if (chat) {
+        // Determine which participant is the other player
+        const otherPlayerId = chat.participant1Id === playerId ? chat.participant2Id : chat.participant1Id;
+        const otherPlayerName = chat.participant1Id === playerId ? chat.participant2Name : chat.participant1Name;
+        const otherPlayerAvatarColor = chat.participant1Id === playerId ? chat.participant2AvatarColor : chat.participant1AvatarColor;
+
+        const activeChat: ActivePlayerChat = {
+          chatId: chat.id,
+          otherPlayerId: otherPlayerId || player.id,
+          otherPlayerName: otherPlayerName || player.name,
+          otherPlayerAvatarColor: otherPlayerAvatarColor || player.avatarColor
+        };
+
+        setActivePlayerChat(activeChat);
+        setActiveTab('conversations');
+      }
+    } catch (error) {
+      console.error('Error starting conversation:', error);
+    }
   };
 
   const handleSummonGenie = () => {
@@ -80,6 +129,9 @@ export default function Home() {
 
   const handlePlayerIdChange = (id: string) => {
     setPlayerId(id);
+    // Also get the MongoDB ID
+    const mongoId = getMongoDBPlayerId();
+    setMongoDBPlayerId(mongoId);
   };
 
   const handleNearbyTeachersChange = (nearbyTeachersList: NearbyTeacher[]) => {
@@ -206,6 +258,8 @@ export default function Home() {
           activeTab={activeTab}
           onTabChange={handleTabChange}
           activeTeacher={activeTeacher}
+          activePlayerChat={activePlayerChat}
+          onActivePlayerChatChange={setActivePlayerChat}
         />
       </div>
 

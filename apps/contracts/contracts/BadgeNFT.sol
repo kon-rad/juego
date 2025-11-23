@@ -47,6 +47,9 @@ contract BadgeNFT is ERC721, ERC721Enumerable, Ownable {
     event BaseURIUpdated(string oldBaseURI, string newBaseURI);
 
     error ZeroAddress();
+    error InvalidTotalQuestions();
+    error InvalidScore();
+    error QuizNameTooLong();
 
     constructor() ERC721("Juego Quest Badge", "BADGE") Ownable(msg.sender) {
         baseURI = "";
@@ -63,6 +66,11 @@ contract BadgeNFT is ERC721, ERC721Enumerable, Ownable {
 
     /**
      * @dev Mint a badge NFT to a player - only callable by owner
+     * @param to The address to mint the badge to
+     * @param quizId The ID of the quiz completed
+     * @param correctAnswers Number of correct answers
+     * @param totalQuestions Total number of questions
+     * @param quizName Name of the quiz (max 100 characters)
      */
     function mintBadge(
         address to,
@@ -71,6 +79,12 @@ contract BadgeNFT is ERC721, ERC721Enumerable, Ownable {
         uint8 totalQuestions,
         string memory quizName
     ) external onlyOwner returns (uint256) {
+        // Input validation
+        if (to == address(0)) revert ZeroAddress();
+        if (totalQuestions == 0) revert InvalidTotalQuestions();
+        if (correctAnswers > totalQuestions) revert InvalidScore();
+        if (bytes(quizName).length > 100) revert QuizNameTooLong();
+
         uint256 tokenId = _nextTokenId++;
 
         badges[tokenId] = BadgeData({
@@ -110,6 +124,45 @@ contract BadgeNFT is ERC721, ERC721Enumerable, Ownable {
     function getBadgeTier(uint256 tokenId) public view returns (string memory) {
         BadgeData memory badge = badges[tokenId];
         return _getTier(badge.correctAnswers, badge.totalQuestions);
+    }
+
+    /**
+     * @dev Escape special characters in a string for JSON encoding
+     * This is a simplified version that handles the most common cases
+     */
+    function _escapeJsonString(string memory str) internal pure returns (string memory) {
+        bytes memory strBytes = bytes(str);
+        bytes memory result = new bytes(strBytes.length * 2); // Worst case: all chars need escaping
+        uint256 resultIndex = 0;
+        
+        for (uint256 i = 0; i < strBytes.length; i++) {
+            bytes1 char = strBytes[i];
+            if (char == '"') {
+                result[resultIndex++] = '\\';
+                result[resultIndex++] = '"';
+            } else if (char == '\\') {
+                result[resultIndex++] = '\\';
+                result[resultIndex++] = '\\';
+            } else if (char == '\n') {
+                result[resultIndex++] = '\\';
+                result[resultIndex++] = 'n';
+            } else if (char == '\r') {
+                result[resultIndex++] = '\\';
+                result[resultIndex++] = 'r';
+            } else if (char == '\t') {
+                result[resultIndex++] = '\\';
+                result[resultIndex++] = 't';
+            } else {
+                result[resultIndex++] = char;
+            }
+        }
+        
+        // Resize result array to actual length
+        assembly {
+            mstore(result, resultIndex)
+        }
+        
+        return string(result);
     }
 
     /**
@@ -163,13 +216,16 @@ contract BadgeNFT is ERC721, ERC721Enumerable, Ownable {
         string memory tier = _getTier(badge.correctAnswers, badge.totalQuestions);
         string memory svg = _generateSVG(tokenId);
 
+        // Escape quotes in quiz name for JSON
+        string memory escapedQuizName = _escapeJsonString(badge.quizName);
+        
         string memory json = string(abi.encodePacked(
             '{"name": "Juego Quest Badge #', tokenId.toString(),
             '", "description": "A badge earned by completing a quiz on Juego Quest",',
             '"image": "data:image/svg+xml;base64,', Base64.encode(bytes(svg)), '",',
             '"attributes": [',
             '{"trait_type": "Quiz ID", "value": "', badge.quizId.toString(), '"},',
-            '{"trait_type": "Quiz Name", "value": "', badge.quizName, '"},',
+            '{"trait_type": "Quiz Name", "value": "', escapedQuizName, '"},',
             '{"trait_type": "Score", "value": "', uint256(badge.correctAnswers).toString(), '/', uint256(badge.totalQuestions).toString(), '"},',
             '{"trait_type": "Tier", "value": "', tier, '"},',
             '{"trait_type": "Completed At", "display_type": "date", "value": ', badge.completedAt.toString(), '}',
@@ -188,6 +244,18 @@ contract BadgeNFT is ERC721, ERC721Enumerable, Ownable {
         override(ERC721, ERC721Enumerable)
         returns (address)
     {
+        address from = _ownerOf(tokenId);
+        
+        // Update mappings when badge is transferred
+        if (from != address(0) && to != address(0) && from != to) {
+            BadgeData memory badge = badges[tokenId];
+            // Remove badge tracking from old owner
+            hasBadgeForQuiz[from][badge.quizId] = false;
+            // Add badge tracking to new owner
+            hasBadgeForQuiz[to][badge.quizId] = true;
+            playerQuizBadge[to][badge.quizId] = tokenId;
+        }
+        
         return super._update(to, tokenId, auth);
     }
 

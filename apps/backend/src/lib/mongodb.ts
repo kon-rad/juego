@@ -63,6 +63,21 @@ export async function getTeachersCollection(): Promise<Collection> {
   return database.collection('teachers')
 }
 
+export async function getAdminCollection(): Promise<Collection> {
+  const database = await getDb();
+  return database.collection('admin');
+}
+
+export async function getChatsCollection(): Promise<Collection> {
+  const database = await getDb()
+  return database.collection('chats')
+}
+
+export async function getChatMessagesCollection(): Promise<Collection> {
+  const database = await getDb()
+  return database.collection('chatMessages')
+}
+
 // Type definitions for AI Characters and Players
 export interface AICharacter {
   _id?: ObjectId
@@ -120,6 +135,30 @@ export interface Teacher {
   createdBy: string  // Player ID who created this teacher
   createdAt: Date
   updatedAt: Date
+}
+
+export interface Chat {
+  _id?: ObjectId
+  participant1Id: string  // MongoDB ObjectId as string
+  participant2Id: string  // MongoDB ObjectId as string
+  participant1Name?: string
+  participant2Name?: string
+  participant1AvatarColor?: string
+  participant2AvatarColor?: string
+  lastMessage?: string
+  lastMessageAt?: Date
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface ChatMessage {
+  _id?: ObjectId
+  chatId: string  // MongoDB ObjectId as string
+  senderId: string  // MongoDB ObjectId as string
+  senderName?: string
+  senderAvatarColor?: string
+  content: string
+  createdAt: Date
 }
 
 // Export ObjectId for use in routes
