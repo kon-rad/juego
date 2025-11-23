@@ -161,5 +161,29 @@ export interface ChatMessage {
   createdAt: Date
 }
 
+export interface TeacherChatMessage {
+  role: 'user' | 'teacher'
+  content: string
+  timestamp: Date
+  speakerName?: string
+}
+
+export interface TeacherChatHistory {
+  _id?: ObjectId
+  playerId: string  // MongoDB ObjectId as string
+  teacherId: string  // MongoDB ObjectId as string
+  teacherName: string
+  topic: string
+  messages: TeacherChatMessage[]
+  lastMessageAt: Date
+  createdAt: Date
+  updatedAt: Date
+}
+
+export async function getTeacherChatHistoriesCollection(): Promise<Collection> {
+  const database = await getDb()
+  return database.collection('teacherChatHistories')
+}
+
 // Export ObjectId for use in routes
 export { ObjectId }

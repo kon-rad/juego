@@ -197,7 +197,7 @@ teacher.post('/:id/chat', async (c) => {
     try {
         const id = c.req.param('id')
         const body = await c.req.json()
-        const { message, conversationHistory } = body
+        const { message, conversationHistory, playerId, walletAddress } = body
 
         if (!message) {
             return c.json({ error: 'Message is required' }, 400)
@@ -210,9 +210,23 @@ teacher.post('/:id/chat', async (c) => {
             return c.json({ error: 'Teacher not found' }, 404)
         }
 
+        // Enhanced system prompt that includes quiz and evaluation instructions
+        const enhancedSystemPrompt = `${teacherDoc.systemPrompt}
+
+IMPORTANT TEACHING AND EVALUATION INSTRUCTIONS:
+1. Regularly ask quiz questions to test the student's understanding
+2. When the student answers a question, evaluate their answer
+3. If their answer is CORRECT or MOSTLY CORRECT, include the marker [CORRECT_ANSWER] in your response
+4. If their answer is INCORRECT, include the marker [INCORRECT_ANSWER] in your response and explain the correct answer
+5. After evaluating, ask a follow-up question or introduce a new concept
+6. Be encouraging but honest - reward effort and correct understanding
+7. Track difficulty - start easy and increase complexity as the student demonstrates mastery
+
+Current quiz context: If the previous message from you contained a question, evaluate the student's response now.`
+
         // Use the teacher's system prompt for the conversation
         const messages = [
-            { role: 'system', content: teacherDoc.systemPrompt },
+            { role: 'system', content: enhancedSystemPrompt },
             ...(conversationHistory || []),
             { role: 'user', content: message }
         ]
@@ -253,10 +267,87 @@ teacher.post('/:id/chat', async (c) => {
             responseContent = ollamaResponse.message.content
         }
 
+        // Check if the answer was correct and award tokens
+        const isCorrect = responseContent.includes('[CORRECT_ANSWER]')
+        const isIncorrect = responseContent.includes('[INCORRECT_ANSWER]')
+
+        // Remove the markers from the response before sending to client
+        let cleanResponse = responseContent
+            .replace(/\[CORRECT_ANSWER\]/g, '')
+            .replace(/\[INCORRECT_ANSWER\]/g, '')
+            .trim()
+
+        // Track rewards
+        let tokensAwarded = 0
+        let nftAwarded = false
+        let newScore = 0
+
+        // Award tokens if answer was correct and player info is provided
+        if (isCorrect && playerId) {
+            tokensAwarded = TOKENS_PER_CORRECT_ANSWER
+
+            // Update player score in database
+            const playersCollection = await getPlayersCollection()
+            const player = await playersCollection.findOne({ _id: new ObjectId(playerId) })
+
+            if (player) {
+                const currentScore = player.score || 0
+                newScore = currentScore + tokensAwarded
+
+                // Check if player earned enough for an NFT badge
+                const previousBadges = Math.floor(currentScore / TOKENS_FOR_NFT_BADGE)
+                const newBadges = Math.floor(newScore / TOKENS_FOR_NFT_BADGE)
+
+                if (newBadges > previousBadges) {
+                    nftAwarded = true
+                }
+
+                // Update player score
+                await playersCollection.updateOne(
+                    { _id: new ObjectId(playerId) },
+                    {
+                        $set: {
+                            score: newScore,
+                            updatedAt: new Date()
+                        }
+                    }
+                )
+
+                // If wallet address provided, mint tokens on blockchain
+                if (walletAddress && /^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+                    try {
+                        const { blockchainService } = await import('../services/blockchain.service.js')
+                        await blockchainService.mintTokens(walletAddress, tokensAwarded.toString())
+
+                        if (nftAwarded) {
+                            await blockchainService.mintNFT(walletAddress)
+                        }
+                    } catch (blockchainError) {
+                        console.error('Error minting rewards on blockchain:', blockchainError)
+                        // Continue without blockchain rewards - still give in-game points
+                    }
+                }
+
+                // Add reward notification to response
+                if (tokensAwarded > 0) {
+                    cleanResponse += `\n\n🎉 **Correct!** You earned ${tokensAwarded} Learn Tokens! (Total: ${newScore})`
+                    if (nftAwarded) {
+                        cleanResponse += `\n\n🏆 **Achievement Unlocked!** You've earned a Knowledge Badge NFT for reaching ${newBadges * TOKENS_FOR_NFT_BADGE} tokens!`
+                    }
+                }
+            }
+        } else if (isIncorrect) {
+            cleanResponse += `\n\n📚 Keep learning! Try again and you'll earn tokens for correct answers.`
+        }
+
         return c.json({
-            response: responseContent,
+            response: cleanResponse,
             teacherName: teacherDoc.name,
-            topic: teacherDoc.topic
+            topic: teacherDoc.topic,
+            isCorrect,
+            tokensAwarded,
+            nftAwarded,
+            newScore
         })
     } catch (error) {
         console.error('Error in teacher chat:', error)

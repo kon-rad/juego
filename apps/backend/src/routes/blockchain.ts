@@ -145,4 +145,31 @@ blockchain.post('/mint/nft', async (c) => {
   }
 });
 
+/**
+ * POST /blockchain/wallet/generate
+ * Generate a new wallet for the user
+ */
+// Add logging to debug wallet generation
+blockchain.post('/wallet/generate', async (c) => {
+  try {
+    console.log('Received request to generate wallet');
+    const { address, encryptedPrivateKey } = await blockchainService.generateWallet();
+    console.log('Generated wallet address:', address);
+
+    // Here you would save the encryptedPrivateKey securely in your database
+    // For now, we just return the address
+
+    return c.json({ address });
+  } catch (error) {
+    console.error('Error generating wallet:', error);
+    return c.json(
+      { 
+        error: 'Failed to generate wallet',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      },
+      500
+    );
+  }
+});
+
 export default blockchain;

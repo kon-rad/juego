@@ -389,19 +389,31 @@ export async function createTeacher(
     }
 }
 
+export interface TeacherChatResponse {
+    response: string;
+    teacherName: string;
+    topic: string;
+    isCorrect?: boolean;
+    tokensAwarded?: number;
+    nftAwarded?: boolean;
+    newScore?: number;
+}
+
 /**
  * Chat with a teacher
  */
 export async function chatWithTeacher(
     teacherId: string,
     message: string,
-    conversationHistory: { role: string; content: string }[]
-): Promise<{ response: string; teacherName: string; topic: string } | null> {
+    conversationHistory: { role: string; content: string }[],
+    playerId?: string,
+    walletAddress?: string
+): Promise<TeacherChatResponse | null> {
     try {
         const response = await fetch(`${API_URL}/api/teacher/${teacherId}/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message, conversationHistory })
+            body: JSON.stringify({ message, conversationHistory, playerId, walletAddress })
         });
 
         if (!response.ok) {

@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Brain, MessageSquare, Settings, Phone, Send, Users } from 'lucide-react';
+import { Brain, MessageSquare, Settings, Phone, Send, ChevronLeft } from 'lucide-react';
 import AICharacterList from './AICharacterList';
 import GenieSvg from './GenieSvg';
-import { createTeacher, checkTeacherPosition, Teacher, chatWithTeacher, getOrCreateChat, getPlayerConversations, getChatMessages, sendChatMessage, type Chat, type ChatMessage as PlayerChatMessage } from '@/lib/mongodb-api';
+import { createTeacher, checkTeacherPosition, Teacher, chatWithTeacher, getPlayerConversations, getChatMessages, sendChatMessage, getTeachers, type Chat, type ChatMessage as PlayerChatMessage } from '@/lib/mongodb-api';
 import { onChatMessage, type ChatMessageEvent } from '@/lib/socket';
 
 export interface AgentLog {
@@ -20,6 +20,15 @@ interface ChatMessage {
     content: string;
     timestamp: Date;
     speakerName?: string;
+}
+
+// Store chat history per teacher
+interface TeacherChatHistory {
+    teacherId: string;
+    teacherName: string;
+    topic: string;
+    messages: ChatMessage[];
+    lastMessageAt: Date;
 }
 
 export interface ActiveTeacher {
@@ -38,6 +47,7 @@ export interface ActivePlayerChat {
 interface AgentPanelProps {
     logs: AgentLog[];
     playerId?: string;
+    walletAddress?: string;
     isGenieActive?: boolean;
     playerPosition?: { x: number; y: number };
     onTeacherCreated?: (teacher: Teacher) => void;
@@ -46,6 +56,7 @@ interface AgentPanelProps {
     activeTeacher?: ActiveTeacher | null;
     activePlayerChat?: ActivePlayerChat | null;
     onActivePlayerChatChange?: (chat: ActivePlayerChat | null) => void;
+    onScoreUpdate?: (newScore: number) => void;
 }
 
 const GENIE_INTRO = `Greetings, seeker of knowledge! I am the Learning Genie. Tell me, what subject or skill do you wish to master today? I shall summon the perfect guide to teach you!`;
@@ -53,6 +64,7 @@ const GENIE_INTRO = `Greetings, seeker of knowledge! I am the Learning Genie. Te
 export default function AgentPanel({
     logs,
     playerId,
+    walletAddress,
     isGenieActive = false,
     playerPosition,
     onTeacherCreated,
@@ -60,7 +72,8 @@ export default function AgentPanel({
     onTabChange,
     activeTeacher,
     activePlayerChat: externalActivePlayerChat,
-    onActivePlayerChatChange
+    onActivePlayerChatChange,
+    onScoreUpdate
 }: AgentPanelProps) {
     const [internalActiveTab, setInternalActiveTab] = useState<'thinking' | 'conversations' | 'voice' | 'settings'>('thinking');
     const activeTab = externalActiveTab ?? internalActiveTab;
@@ -73,6 +86,11 @@ export default function AgentPanel({
     const [teacherInfo, setTeacherInfo] = useState<{ name: string; systemPrompt: string; personality: string } | null>(null);
     const [teacherCreated, setTeacherCreated] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // Teacher chat history storage (per teacher)
+    const [teacherChatHistories, setTeacherChatHistories] = useState<Map<string, TeacherChatHistory>>(new Map());
+    const [selectedTeacherChat, setSelectedTeacherChat] = useState<string | null>(null);
+    const [availableTeachers, setAvailableTeachers] = useState<Teacher[]>([]);
 
     // Player chat state
     const [playerConversations, setPlayerConversations] = useState<Chat[]>([]);
@@ -103,22 +121,115 @@ export default function AgentPanel({
         }
     }, [isGenieActive, chatMessages.length, activeTeacher]);
 
-    // Initialize teacher chat when approaching a teacher
+    // Initialize teacher chat when approaching a teacher or selecting from list
     useEffect(() => {
         if (activeTeacher && activeTeacher.id !== currentTeacherId) {
             setCurrentTeacherId(activeTeacher.id);
-            setChatMessages([{
-                id: `teacher-intro-${Date.now()}`,
-                role: 'teacher',
-                content: `Hello! I'm ${activeTeacher.name}, your ${activeTeacher.topic} teacher. How can I help you learn today?`,
-                timestamp: new Date(),
-                speakerName: activeTeacher.name
-            }]);
+            setSelectedTeacherChat(activeTeacher.id);
+
+            // Check if we have existing chat history for this teacher
+            const existingHistory = teacherChatHistories.get(activeTeacher.id);
+            if (existingHistory && existingHistory.messages.length > 0) {
+                // Restore existing chat history
+                setChatMessages(existingHistory.messages);
+            } else {
+                // Start new conversation
+                const introMessage: ChatMessage = {
+                    id: `teacher-intro-${Date.now()}`,
+                    role: 'teacher',
+                    content: `Hello! I'm ${activeTeacher.name}, your ${activeTeacher.topic} teacher. How can I help you learn today?`,
+                    timestamp: new Date(),
+                    speakerName: activeTeacher.name
+                };
+                setChatMessages([introMessage]);
+
+                // Store in history
+                setTeacherChatHistories(prev => {
+                    const newMap = new Map(prev);
+                    newMap.set(activeTeacher.id, {
+                        teacherId: activeTeacher.id,
+                        teacherName: activeTeacher.name,
+                        topic: activeTeacher.topic,
+                        messages: [introMessage],
+                        lastMessageAt: new Date()
+                    });
+                    return newMap;
+                });
+            }
         } else if (!activeTeacher && currentTeacherId) {
-            // Teacher conversation ended (player moved away)
+            // Teacher conversation ended (player moved away) - save current messages to history
+            if (chatMessages.length > 0 && currentTeacherId) {
+                const history = teacherChatHistories.get(currentTeacherId);
+                if (history) {
+                    setTeacherChatHistories(prev => {
+                        const newMap = new Map(prev);
+                        newMap.set(currentTeacherId, {
+                            ...history,
+                            messages: chatMessages,
+                            lastMessageAt: new Date()
+                        });
+                        return newMap;
+                    });
+                }
+            }
             setCurrentTeacherId(null);
         }
     }, [activeTeacher, currentTeacherId]);
+
+    // Handle selecting a teacher chat from the list
+    const handleSelectTeacherChat = (teacher: Teacher) => {
+        setSelectedTeacherChat(teacher.id);
+
+        // Check if we have existing chat history
+        const existingHistory = teacherChatHistories.get(teacher.id);
+        if (existingHistory && existingHistory.messages.length > 0) {
+            setChatMessages(existingHistory.messages);
+        } else {
+            // Start new conversation
+            const introMessage: ChatMessage = {
+                id: `teacher-intro-${Date.now()}`,
+                role: 'teacher',
+                content: `Hello! I'm ${teacher.name}, your ${teacher.topic} teacher. How can I help you learn today?`,
+                timestamp: new Date(),
+                speakerName: teacher.name
+            };
+            setChatMessages([introMessage]);
+
+            // Store in history
+            setTeacherChatHistories(prev => {
+                const newMap = new Map(prev);
+                newMap.set(teacher.id, {
+                    teacherId: teacher.id,
+                    teacherName: teacher.name,
+                    topic: teacher.topic,
+                    messages: [introMessage],
+                    lastMessageAt: new Date()
+                });
+                return newMap;
+            });
+        }
+    };
+
+    // Go back to chat list
+    const handleBackToList = () => {
+        // Save current chat before going back
+        if (selectedTeacherChat && chatMessages.length > 0) {
+            const history = teacherChatHistories.get(selectedTeacherChat);
+            if (history) {
+                setTeacherChatHistories(prev => {
+                    const newMap = new Map(prev);
+                    newMap.set(selectedTeacherChat, {
+                        ...history,
+                        messages: chatMessages,
+                        lastMessageAt: new Date()
+                    });
+                    return newMap;
+                });
+            }
+        }
+        setSelectedTeacherChat(null);
+        setChatMessages([]);
+    };
 
     // Scroll to bottom when new messages arrive
     useEffect(() => {
@@ -129,8 +240,19 @@ export default function AgentPanel({
     useEffect(() => {
         if (activeTab === 'conversations' && !isGenieActive && !activeTeacher && playerId) {
             loadConversations();
+            loadTeachers();
         }
     }, [activeTab, isGenieActive, activeTeacher, playerId]);
+
+    // Load available teachers
+    const loadTeachers = async () => {
+        try {
+            const teachers = await getTeachers();
+            setAvailableTeachers(teachers);
+        } catch (error) {
+            console.error('Error loading teachers:', error);
+        }
+    };
 
     // Load messages when a player chat is selected
     useEffect(() => {
@@ -350,15 +472,18 @@ export default function AgentPanel({
         setIsLoading(true);
 
         try {
-            // If chatting with a teacher
-            if (activeTeacher) {
+            // If chatting with a teacher (either active or selected from list)
+            const teacherId = activeTeacher?.id || selectedTeacherChat;
+            if (teacherId) {
                 const result = await chatWithTeacher(
-                    activeTeacher.id,
+                    teacherId,
                     messageText,
                     chatMessages.map(m => ({
                         role: m.role === 'user' ? 'user' : 'assistant',
                         content: m.content
-                    }))
+                    })),
+                    playerId,
+                    walletAddress
                 );
 
                 if (result) {
@@ -369,7 +494,27 @@ export default function AgentPanel({
                         timestamp: new Date(),
                         speakerName: result.teacherName
                     };
-                    setChatMessages(prev => [...prev, teacherMessage]);
+                    const newMessages = [...chatMessages, userMessage, teacherMessage];
+                    setChatMessages(newMessages);
+
+                    // Update chat history
+                    setTeacherChatHistories(prev => {
+                        const newMap = new Map(prev);
+                        const existing = newMap.get(teacherId);
+                        if (existing) {
+                            newMap.set(teacherId, {
+                                ...existing,
+                                messages: newMessages,
+                                lastMessageAt: new Date()
+                            });
+                        }
+                        return newMap;
+                    });
+
+                    // Update score if tokens were awarded
+                    if (result.newScore !== undefined && onScoreUpdate) {
+                        onScoreUpdate(result.newScore);
+                    }
                 } else {
                     throw new Error('Failed to get response from teacher');
                 }
@@ -521,45 +666,107 @@ export default function AgentPanel({
 
                     {activeTab === 'conversations' && (
                         <div className="space-y-4">
-                            {/* Player Chat Conversations List */}
-                            {!isGenieActive && !activeTeacher && !activePlayerChat && (
-                                <div className="space-y-2">
-                                    <h3 className="text-sm font-mono uppercase tracking-wider text-matrix-green mb-3">Player Chats</h3>
-                                    {isLoadingConversations ? (
-                                        <div className="text-ghost-green text-center py-4">Loading conversations...</div>
-                                    ) : playerConversations.length === 0 ? (
-                                        <div className="text-ghost-green text-center py-4 font-mono text-sm">No conversations yet. Start chatting with nearby players!</div>
-                                    ) : (
-                                        playerConversations.map((chat) => (
-                                            <button
-                                                key={chat.id}
-                                                onClick={() => handleSelectConversation(chat)}
-                                                className="w-full p-3 rounded bg-matrix-dark/50 border border-matrix-green/20 hover:bg-matrix-dark/70 hover:border-matrix-green/40 transition-all text-left"
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <div
-                                                        className="w-10 h-10 rounded-full border-2 border-matrix-green/30"
-                                                        style={{ backgroundColor: chat.otherParticipantAvatarColor || '#4ECDC4' }}
-                                                    />
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="text-matrix-green font-mono text-sm font-semibold truncate">
-                                                            {chat.otherParticipantName || 'Unknown Player'}
+                            {/* Chat List View - Show when no active chat */}
+                            {!isGenieActive && !activeTeacher && !activePlayerChat && !selectedTeacherChat && (
+                                <div className="space-y-4">
+                                    {/* Teacher Chats Section */}
+                                    <div className="space-y-2">
+                                        <h3 className="text-sm font-mono uppercase tracking-wider text-amber-400 mb-3 flex items-center gap-2">
+                                            <span className="w-2 h-2 bg-amber-400 rounded-full"></span>
+                                            Teacher Chats
+                                        </h3>
+                                        {availableTeachers.length === 0 ? (
+                                            <div className="text-ghost-green text-center py-4 font-mono text-sm">
+                                                No teachers yet. Ask the Learning Genie to summon one!
+                                            </div>
+                                        ) : (
+                                            availableTeachers.map((teacher) => {
+                                                const history = teacherChatHistories.get(teacher.id);
+                                                const lastMessage = history?.messages[history.messages.length - 1];
+                                                return (
+                                                    <button
+                                                        key={teacher.id}
+                                                        onClick={() => handleSelectTeacherChat(teacher)}
+                                                        className="w-full p-3 rounded bg-amber-900/20 border border-amber-400/20 hover:bg-amber-900/40 hover:border-amber-400/40 transition-all text-left"
+                                                    >
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-10 h-10 rounded-full bg-amber-500/30 border-2 border-amber-400/50 flex items-center justify-center">
+                                                                <span className="text-amber-200 font-bold text-sm">
+                                                                    {teacher.name.charAt(0)}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="text-amber-300 font-mono text-sm font-semibold truncate">
+                                                                    {teacher.name}
+                                                                </div>
+                                                                <div className="text-amber-400/60 text-xs truncate">
+                                                                    {teacher.topic}
+                                                                </div>
+                                                                {lastMessage && (
+                                                                    <div className="text-amber-200/50 text-xs truncate mt-1">
+                                                                        {lastMessage.content.substring(0, 50)}...
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            {history && (
+                                                                <div className="text-amber-400/40 text-xs">
+                                                                    {history.messages.length} msgs
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                        {chat.lastMessage && (
-                                                            <div className="text-dim-green text-xs truncate mt-1">
-                                                                {chat.lastMessage}
+                                                    </button>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+
+                                    {/* Divider */}
+                                    <div className="border-t border-matrix-green/20 my-4"></div>
+
+                                    {/* Player Chats Section */}
+                                    <div className="space-y-2">
+                                        <h3 className="text-sm font-mono uppercase tracking-wider text-matrix-green mb-3 flex items-center gap-2">
+                                            <span className="w-2 h-2 bg-matrix-green rounded-full"></span>
+                                            Player Chats
+                                        </h3>
+                                        {isLoadingConversations ? (
+                                            <div className="text-ghost-green text-center py-4">Loading conversations...</div>
+                                        ) : playerConversations.length === 0 ? (
+                                            <div className="text-ghost-green text-center py-4 font-mono text-sm">
+                                                No player chats yet. Walk up to other players to start chatting!
+                                            </div>
+                                        ) : (
+                                            playerConversations.map((chat) => (
+                                                <button
+                                                    key={chat.id}
+                                                    onClick={() => handleSelectConversation(chat)}
+                                                    className="w-full p-3 rounded bg-matrix-dark/50 border border-matrix-green/20 hover:bg-matrix-dark/70 hover:border-matrix-green/40 transition-all text-left"
+                                                >
+                                                    <div className="flex items-center gap-3">
+                                                        <div
+                                                            className="w-10 h-10 rounded-full border-2 border-matrix-green/30"
+                                                            style={{ backgroundColor: chat.otherParticipantAvatarColor || '#4ECDC4' }}
+                                                        />
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="text-matrix-green font-mono text-sm font-semibold truncate">
+                                                                {chat.otherParticipantName || 'Unknown Player'}
                                                             </div>
-                                                        )}
-                                                        {chat.lastMessageAt && (
-                                                            <div className="text-ghost-green text-xs mt-1">
-                                                                {new Date(chat.lastMessageAt).toLocaleString()}
-                                                            </div>
-                                                        )}
+                                                            {chat.lastMessage && (
+                                                                <div className="text-dim-green text-xs truncate mt-1">
+                                                                    {chat.lastMessage}
+                                                                </div>
+                                                            )}
+                                                            {chat.lastMessageAt && (
+                                                                <div className="text-ghost-green text-xs mt-1">
+                                                                    {new Date(chat.lastMessageAt).toLocaleString()}
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            </button>
-                                        ))
-                                    )}
+                                                </button>
+                                            ))
+                                        )}
+                                    </div>
                                 </div>
                             )}
 
@@ -603,54 +810,69 @@ export default function AgentPanel({
                             )}
 
                             {/* Genie/Teacher Chat Messages */}
-                            {(isGenieActive || activeTeacher) && chatMessages.map((message) => (
-                                <div
-                                    key={message.id}
-                                    className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
-                                >
-                                    {message.role === 'genie' ? (
-                                        <div className="flex-shrink-0">
-                                            <GenieSvg size={32} />
-                                        </div>
-                                    ) : message.role === 'teacher' ? (
-                                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-500/30 border border-amber-400/50 flex items-center justify-center">
-                                            <span className="text-xs text-amber-200">T</span>
-                                        </div>
-                                    ) : (
-                                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500/30 border border-blue-400/50 flex items-center justify-center">
-                                            <span className="text-xs text-blue-200">You</span>
-                                        </div>
-                                    )}
-                                    <div className="flex-1">
-                                        {message.speakerName && (
-                                            <div className={`text-xs mb-1 font-mono ${
-                                                message.role === 'genie' ? 'text-amber-400' :
-                                                message.role === 'teacher' ? 'text-amber-300' : 'text-blue-400'
-                                            }`}>
-                                                {message.speakerName}
-                                            </div>
-                                        )}
-                                        <div
-                                            className={`p-3 rounded-lg text-sm ${
-                                                message.role === 'genie'
-                                                    ? 'bg-amber-900/30 border border-amber-400/30 text-amber-100'
-                                                    : message.role === 'teacher'
-                                                    ? 'bg-amber-800/30 border border-amber-400/20 text-amber-100'
-                                                    : 'bg-blue-900/30 border border-blue-400/30 text-blue-100'
-                                            }`}
+                            {(isGenieActive || activeTeacher || selectedTeacherChat) && (
+                                <>
+                                    {/* Back button for selected teacher chat (not when actively near teacher) */}
+                                    {selectedTeacherChat && !activeTeacher && !isGenieActive && (
+                                        <button
+                                            onClick={handleBackToList}
+                                            className="mb-4 px-3 py-2 bg-amber-900/30 border border-amber-400/30 rounded text-amber-300 text-sm hover:bg-amber-900/50 transition-colors flex items-center gap-2"
                                         >
-                                            <p className="whitespace-pre-wrap">{message.content}</p>
-                                            <span className="text-xs opacity-50 mt-1 block">
-                                                {message.timestamp.toLocaleTimeString()}
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
+                                            <ChevronLeft size={16} />
+                                            Back to Chats
+                                        </button>
+                                    )}
 
-                            {isLoading && (
+                                    {chatMessages.map((message) => (
+                                        <div
+                                            key={message.id}
+                                            className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
+                                        >
+                                            {message.role === 'genie' ? (
+                                                <div className="flex-shrink-0">
+                                                    <GenieSvg size={32} />
+                                                </div>
+                                            ) : message.role === 'teacher' ? (
+                                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-500/30 border border-amber-400/50 flex items-center justify-center">
+                                                    <span className="text-xs text-amber-200">T</span>
+                                                </div>
+                                            ) : (
+                                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500/30 border border-blue-400/50 flex items-center justify-center">
+                                                    <span className="text-xs text-blue-200">You</span>
+                                                </div>
+                                            )}
+                                            <div className="flex-1">
+                                                {message.speakerName && (
+                                                    <div className={`text-xs mb-1 font-mono ${
+                                                        message.role === 'genie' ? 'text-amber-400' :
+                                                        message.role === 'teacher' ? 'text-amber-300' : 'text-blue-400'
+                                                    }`}>
+                                                        {message.speakerName}
+                                                    </div>
+                                                )}
+                                                <div
+                                                    className={`p-3 rounded-lg text-sm ${
+                                                        message.role === 'genie'
+                                                            ? 'bg-amber-900/30 border border-amber-400/30 text-amber-100'
+                                                            : message.role === 'teacher'
+                                                            ? 'bg-amber-800/30 border border-amber-400/20 text-amber-100'
+                                                            : 'bg-blue-900/30 border border-blue-400/30 text-blue-100'
+                                                    }`}
+                                                >
+                                                    <p className="whitespace-pre-wrap">{message.content}</p>
+                                                    <span className="text-xs opacity-50 mt-1 block">
+                                                        {message.timestamp.toLocaleTimeString()}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </>
+                            )}
+
+                            {isLoading && (isGenieActive || activeTeacher || selectedTeacherChat) && (
                                 <div className="flex gap-3">
-                                    {activeTeacher ? (
+                                    {(activeTeacher || selectedTeacherChat) ? (
                                         <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-500/30 border border-amber-400/50 flex items-center justify-center">
                                             <span className="text-xs text-amber-200">T</span>
                                         </div>
@@ -743,7 +965,7 @@ export default function AgentPanel({
                 </div>
 
                 {/* Chat Input - Show in conversations tab when genie, teacher, or player chat is active */}
-                {activeTab === 'conversations' && (isGenieActive || activeTeacher || activePlayerChat) && (
+                {activeTab === 'conversations' && (isGenieActive || activeTeacher || activePlayerChat || selectedTeacherChat) && (
                     <div className="p-4 border-t border-amber-400/30 bg-gradient-to-r from-amber-900/20 to-amber-950/20">
                         <div className="flex gap-2">
                             <input
@@ -753,8 +975,10 @@ export default function AgentPanel({
                                 onKeyDown={handleKeyPress}
                                 placeholder={activePlayerChat
                                     ? `Message ${activePlayerChat.otherPlayerName}...`
-                                    : activeTeacher 
+                                    : activeTeacher
                                     ? `Ask ${activeTeacher.name} about ${activeTeacher.topic}...`
+                                    : selectedTeacherChat
+                                    ? `Continue learning...`
                                     : "Ask the genie what you want to learn..."
                                 }
                                 className="flex-1 p-3 bg-amber-950/30 border border-amber-400/30 rounded-lg text-amber-100 placeholder-amber-400/50 focus:outline-none focus:border-amber-400/60 text-sm"

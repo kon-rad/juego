@@ -23,6 +23,44 @@ export default function Home() {
   const [activeTeacher, setActiveTeacher] = useState<ActiveTeacher | null>(null);
   const [activePlayerChat, setActivePlayerChat] = useState<ActivePlayerChat | null>(null);
   const [mongoDBPlayerId, setMongoDBPlayerId] = useState<string | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string>('');
+
+  // Add logging to debug wallet initialization
+  useEffect(() => {
+    const initializeWallet = async () => {
+      const storedWalletAddress = localStorage.getItem('walletAddress');
+      console.log('Stored wallet address:', storedWalletAddress);
+
+      try {
+        if (storedWalletAddress) {
+          // Use existing wallet address
+          setWalletAddress(storedWalletAddress);
+          console.log('Using stored wallet address:', storedWalletAddress);
+        } else {
+          // Create a new wallet
+          console.log('No wallet found, generating a new one...');
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/blockchain/wallet/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          });
+
+          const data = await response.json();
+          console.log('Response from wallet generation:', data);
+          if (response.ok && data.address) {
+            localStorage.setItem('walletAddress', data.address);
+            setWalletAddress(data.address);
+            console.log('New wallet address set:', data.address);
+          } else {
+            console.error('Failed to generate wallet:', data);
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing wallet:', error);
+      }
+    };
+
+    initializeWallet();
+  }, []);
 
   const handleAgentAction = (action: any) => {
     const newLog: AgentLog = {
@@ -160,7 +198,7 @@ export default function Home() {
     <main className="h-screen w-screen overflow-hidden bg-deep-black grid grid-cols-[1fr_384px] grid-rows-[32px_1fr_80px]">
       {/* Menu Bar - Top (spans both columns) */}
       <div className="col-span-2">
-        <MenuBar autoMode={autoMode} onAutoModeToggle={setAutoMode} />
+        <MenuBar autoMode={autoMode} onAutoModeToggle={setAutoMode} walletAddress={walletAddress || 'No wallet'} />
       </div>
 
       {/* Game Canvas - Center Left */}

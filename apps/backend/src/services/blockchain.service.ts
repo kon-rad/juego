@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -199,6 +200,31 @@ export class BlockchainService {
     } catch (error) {
       console.error('Error minting NFT:', error);
       throw new Error('Failed to mint NFT');
+    }
+  }
+
+  /**
+   * Generate a new Ethereum wallet
+   */
+  async generateWallet(): Promise<{ address: string; encryptedPrivateKey: string }> {
+    try {
+      const wallet = ethers.Wallet.createRandom();
+      const privateKey = wallet.privateKey;
+
+      // Encrypt the private key
+      const encryptionKey = process.env.ENCRYPTION_KEY;
+      if (!encryptionKey) {
+        throw new Error('Encryption key not configured in environment variables');
+      }
+
+      const cipher = crypto.createCipher('aes-256-cbc', encryptionKey);
+      let encrypted = cipher.update(privateKey, 'utf8', 'hex');
+      encrypted += cipher.final('hex');
+
+      return { address: wallet.address, encryptedPrivateKey: encrypted };
+    } catch (error) {
+      console.error('Error generating wallet:', error);
+      throw new Error('Failed to generate wallet');
     }
   }
 }
