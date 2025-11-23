@@ -163,7 +163,7 @@ export interface ChatMessage {
 }
 
 export interface TeacherChatMessage {
-  role: 'user' | 'teacher'
+  role: 'user' | 'teacher' | 'reward'
   content: string
   timestamp: Date
   speakerName?: string

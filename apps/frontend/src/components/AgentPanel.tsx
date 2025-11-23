@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Brain, MessageSquare, Settings, Phone, Send, ChevronLeft } from 'lucide-react';
+import { Brain, MessageSquare, Settings, Phone, Send, ChevronLeft, Bug } from 'lucide-react';
 import AICharacterList from './AICharacterList';
 import GenieSvg from './GenieSvg';
 import { Teacher, chatWithTeacher, getPlayerConversations, getChatMessages, sendChatMessage, getTeachers, getPlayerTeacherChatHistories, saveTeacherChatHistory, getPlayerProfile, updatePlayerProfile, type Chat, type ChatMessage as PlayerChatMessage, type TeacherChatHistoryResponse } from '@/lib/mongodb-api';
 import { onChatMessage, type ChatMessageEvent } from '@/lib/socket';
 import { getMongoDBPlayerId } from '@/lib/player';
+import { mintTokens, mintNFT } from '@/lib/blockchain-api';
 
 export interface AgentLog {
     id: string;
@@ -17,10 +18,12 @@ export interface AgentLog {
 
 interface ChatMessage {
     id: string;
-    role: 'genie' | 'user' | 'teacher';
+    role: 'genie' | 'user' | 'teacher' | 'reward';
     content: string;
     timestamp: Date;
     speakerName?: string;
+    tokensAwarded?: number;
+    nftAwarded?: boolean;
 }
 
 // Store chat history per teacher
@@ -270,7 +273,7 @@ export default function AgentPanel({
                         topic: h.topic,
                         messages: h.messages.map(m => ({
                             id: `${m.role}-${m.timestamp.getTime()}`,
-                            role: m.role === 'user' ? 'user' : 'teacher',
+                            role: m.role === 'user' ? 'user' : m.role === 'reward' ? 'reward' : 'teacher',
                             content: m.content,
                             timestamp: m.timestamp,
                             speakerName: m.speakerName
@@ -450,7 +453,21 @@ export default function AgentPanel({
                         timestamp: new Date(),
                         speakerName: result.teacherName
                     };
-                    const newMessages = [...chatMessages, userMessage, teacherMessage];
+                    let newMessages = [...chatMessages, userMessage, teacherMessage];
+
+                    // Add reward message if tokens or NFT were awarded
+                    if ((result.tokensAwarded && result.tokensAwarded > 0) || result.nftAwarded) {
+                        const rewardMessage: ChatMessage = {
+                            id: `reward-${Date.now()}`,
+                            role: 'reward',
+                            content: `🎉 You've been awarded ${result.tokensAwarded || 0} $LEARN token${(result.tokensAwarded || 0) !== 1 ? 's' : ''}${result.nftAwarded ? ' and 1 NFT badge' : ''} for your solid answer!`,
+                            timestamp: new Date(),
+                            tokensAwarded: result.tokensAwarded,
+                            nftAwarded: result.nftAwarded
+                        };
+                        newMessages = [...newMessages, rewardMessage];
+                    }
+
                     setChatMessages(newMessages);
 
                     // Update chat history in state
@@ -567,6 +584,77 @@ export default function AgentPanel({
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSendMessage();
+        }
+    };
+
+    const handleDebugMint = async () => {
+        if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+            alert('Please connect a valid wallet address first.');
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            // Mint 10 tokens first
+            const tokensAmount = '10';
+            await mintTokens(walletAddress, tokensAmount);
+            
+            // Wait a bit to ensure the transaction is processed before minting NFT
+            // This helps avoid nonce issues
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Mint 1 NFT badge
+            const teacherId = activeTeacher?.id || selectedTeacherChat;
+            const teacherIdHex = teacherId ? teacherId.replace(/[^a-f0-9]/gi, '').slice(0, 8) || '00000000' : '00000000';
+            const quizId = parseInt(teacherIdHex, 16) || 1;
+            const quizName = activeTeacher ? `${activeTeacher.topic} Quiz` : 'Learning Quiz';
+            
+            await mintNFT(walletAddress, quizId, 1, 1, quizName);
+
+            // Add reward message to chat
+            const rewardMessage: ChatMessage = {
+                id: `reward-debug-${Date.now()}`,
+                role: 'reward',
+                content: `🎉 Debug: You've been awarded 10 $LEARN tokens and 1 NFT badge!`,
+                timestamp: new Date(),
+                tokensAwarded: 10,
+                nftAwarded: true
+            };
+            setChatMessages(prev => [...prev, rewardMessage]);
+
+            // Update chat history if we're in a teacher chat
+            if (teacherId) {
+                const history = teacherChatHistories.get(teacherId);
+                if (history) {
+                    setTeacherChatHistories(prev => {
+                        const newMap = new Map(prev);
+                        newMap.set(teacherId, {
+                            ...history,
+                            messages: [...history.messages, rewardMessage],
+                            lastMessageAt: new Date()
+                        });
+                        return newMap;
+                    });
+                }
+            }
+
+            // Refresh balance after a delay
+            setTimeout(() => {
+                if (onBalanceRefresh) {
+                    onBalanceRefresh();
+                }
+            }, 2000);
+        } catch (error) {
+            console.error('Error in debug mint:', error);
+            const errorMessage: ChatMessage = {
+                id: `error-debug-${Date.now()}`,
+                role: 'reward',
+                content: `❌ Debug mint failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                timestamp: new Date()
+            };
+            setChatMessages(prev => [...prev, errorMessage]);
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -1014,50 +1102,86 @@ export default function AgentPanel({
                                         </button>
                                     )}
 
-                                    {chatMessages.map((message) => (
-                                        <div
-                                            key={message.id}
-                                            className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
-                                        >
-                                            {message.role === 'genie' ? (
-                                                <div className="flex-shrink-0">
-                                                    <GenieSvg size={32} />
+                                    {chatMessages.map((message) => {
+                                        // Special rendering for reward messages
+                                        if (message.role === 'reward') {
+                                            return (
+                                                <div
+                                                    key={message.id}
+                                                    className="flex gap-3 justify-center my-4"
+                                                >
+                                                    <div className="flex-1 max-w-full">
+                                                        <div className="p-4 rounded-lg text-sm bg-gradient-to-r from-green-900/40 to-emerald-900/40 border-2 border-green-400/50 text-green-100 shadow-lg break-words overflow-wrap-anywhere">
+                                                            <div className="flex items-center gap-2 mb-2">
+                                                                <span className="text-xl">🎉</span>
+                                                                <span className="font-bold text-green-300">Reward Notification</span>
+                                                            </div>
+                                                            <p className="whitespace-pre-wrap mb-2 break-words overflow-wrap-anywhere">{message.content}</p>
+                                                            {message.tokensAwarded && message.tokensAwarded > 0 && (
+                                                                <div className="text-xs text-green-200 mt-2 pt-2 border-t border-green-400/30 break-words">
+                                                                    💰 {message.tokensAwarded} $LEARN tokens
+                                                                </div>
+                                                            )}
+                                                            {message.nftAwarded && (
+                                                                <div className="text-xs text-green-200 mt-1 break-words">
+                                                                    🏆 1 NFT Badge
+                                                                </div>
+                                                            )}
+                                                            <span className="text-xs opacity-50 mt-2 block">
+                                                                {message.timestamp.toLocaleTimeString()}
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            ) : message.role === 'teacher' ? (
-                                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-500/30 border border-amber-400/50 flex items-center justify-center">
-                                                    <span className="text-xs text-amber-200">T</span>
-                                                </div>
-                                            ) : (
-                                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500/30 border border-blue-400/50 flex items-center justify-center">
-                                                    <span className="text-xs text-blue-200">You</span>
-                                                </div>
-                                            )}
-                                            <div className="flex-1">
-                                                {message.speakerName && (
-                                                    <div className={`text-xs mb-1 font-mono ${
-                                                        message.role === 'genie' ? 'text-amber-400' :
-                                                        message.role === 'teacher' ? 'text-amber-300' : 'text-blue-400'
-                                                    }`}>
-                                                        {message.speakerName}
+                                            );
+                                        }
+                                        
+                                        // Regular message rendering
+                                        return (
+                                            <div
+                                                key={message.id}
+                                                className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
+                                            >
+                                                {message.role === 'genie' ? (
+                                                    <div className="flex-shrink-0">
+                                                        <GenieSvg size={32} />
+                                                    </div>
+                                                ) : message.role === 'teacher' ? (
+                                                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-500/30 border border-amber-400/50 flex items-center justify-center">
+                                                        <span className="text-xs text-amber-200">T</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500/30 border border-blue-400/50 flex items-center justify-center">
+                                                        <span className="text-xs text-blue-200">You</span>
                                                     </div>
                                                 )}
-                                                <div
-                                                    className={`p-3 rounded-lg text-sm ${
-                                                        message.role === 'genie'
-                                                            ? 'bg-amber-900/30 border border-amber-400/30 text-amber-100'
-                                                            : message.role === 'teacher'
-                                                            ? 'bg-amber-800/30 border border-amber-400/20 text-amber-100'
-                                                            : 'bg-blue-900/30 border border-blue-400/30 text-blue-100'
-                                                    }`}
-                                                >
-                                                    <p className="whitespace-pre-wrap">{message.content}</p>
-                                                    <span className="text-xs opacity-50 mt-1 block">
-                                                        {message.timestamp.toLocaleTimeString()}
-                                                    </span>
+                                                <div className="flex-1">
+                                                    {message.speakerName && (
+                                                        <div className={`text-xs mb-1 font-mono ${
+                                                            message.role === 'genie' ? 'text-amber-400' :
+                                                            message.role === 'teacher' ? 'text-amber-300' : 'text-blue-400'
+                                                        }`}>
+                                                            {message.speakerName}
+                                                        </div>
+                                                    )}
+                                                    <div
+                                                        className={`p-3 rounded-lg text-sm ${
+                                                            message.role === 'genie'
+                                                                ? 'bg-amber-900/30 border border-amber-400/30 text-amber-100'
+                                                                : message.role === 'teacher'
+                                                                ? 'bg-amber-800/30 border border-amber-400/20 text-amber-100'
+                                                                : 'bg-blue-900/30 border border-blue-400/30 text-blue-100'
+                                                        }`}
+                                                    >
+                                                        <p className="whitespace-pre-wrap">{message.content}</p>
+                                                        <span className="text-xs opacity-50 mt-1 block">
+                                                            {message.timestamp.toLocaleTimeString()}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </>
                             )}
 
@@ -1240,6 +1364,14 @@ export default function AgentPanel({
                                 className="flex-1 p-3 bg-amber-950/30 border border-amber-400/30 rounded-lg text-amber-100 placeholder-amber-400/50 focus:outline-none focus:border-amber-400/60 text-sm"
                                 disabled={isLoading}
                             />
+                            <button
+                                onClick={handleDebugMint}
+                                disabled={isLoading || !walletAddress}
+                                className="px-3 bg-gradient-to-b from-purple-500 to-purple-600 text-white font-semibold rounded-lg hover:from-purple-400 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center"
+                                title="Debug: Mint tokens and NFT"
+                            >
+                                <Bug size={18} />
+                            </button>
                             <button
                                 onClick={handleSendMessage}
                                 disabled={isLoading || !inputValue.trim()}

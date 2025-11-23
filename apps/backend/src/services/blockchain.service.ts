@@ -254,6 +254,52 @@ export class BlockchainService {
   }
 
   /**
+   * Mint tokens and NFT sequentially to avoid nonce issues
+   * Waits for token minting to complete before minting NFT
+   */
+  async mintTokensAndNFT(
+    to: string,
+    tokenAmount: string,
+    quizId: number = 1,
+    correctAnswers: number = 5,
+    totalQuestions: number = 5,
+    quizName: string = 'Demo Quiz'
+  ): Promise<{ tokensTxHash: string; nftTokenId?: string }> {
+    await this.ensureInitialized();
+    try {
+      // First mint tokens and wait for confirmation
+      const decimals = await this.learnTokenContract.decimals();
+      const amountInWei = ethers.parseUnits(tokenAmount, decimals);
+      const tokenTx = await this.learnTokenContract.mint(to, amountInWei);
+      const tokenReceipt = await tokenTx.wait();
+      console.log(`Minted ${tokenAmount} tokens to ${to}, tx: ${tokenReceipt.hash}`);
+
+      // Wait a bit to ensure the transaction is fully processed
+      // This helps avoid nonce issues in local development
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Then mint NFT
+      const nftTx = await this.badgeNFTContract.mintBadge(
+        to,
+        quizId,
+        correctAnswers,
+        totalQuestions,
+        quizName
+      );
+      const nftReceipt = await nftTx.wait();
+      console.log(`Minted NFT to ${to}, tx: ${nftReceipt.hash}`);
+
+      return {
+        tokensTxHash: tokenReceipt.hash,
+        nftTokenId: nftReceipt.hash
+      };
+    } catch (error) {
+      console.error('Error minting tokens and NFT:', error);
+      throw new Error(`Failed to mint tokens and NFT: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
    * Generate a new Ethereum wallet
    */
   async generateWallet(): Promise<{ address: string; encryptedPrivateKey: string }> {

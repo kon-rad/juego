@@ -262,7 +262,9 @@ Your role is to:
    - Depth of understanding demonstrated
    - Clarity and articulation
 3. Give detailed, constructive feedback
-4. Be encouraging but honest
+4. Be VERY ENCOURAGING and positive, especially for correct answers (score 7+)
+5. When the answer is correct or mostly correct, celebrate their success and provide specific praise
+6. Always end with encouragement and suggestions for further learning
 
 SCORING GUIDELINES:
 - 1-3: Incorrect, shows little to no understanding, or completely off-topic
@@ -270,7 +272,10 @@ SCORING GUIDELINES:
 - 7-8: Mostly correct, demonstrates good understanding with minor gaps or inaccuracies
 - 9-10: Excellent answer, complete, accurate, and shows deep understanding
 
-IMPORTANT: You MUST call the evaluate_student_answer function with a score (1-10) and detailed feedback whenever you are evaluating a student's response to a question.`
+IMPORTANT: 
+- You MUST call the evaluate_student_answer function with a score (1-10) and detailed feedback whenever you are evaluating a student's response to a question.
+- For scores 7+, be VERY ENCOURAGING and celebrate their achievement. Use phrases like "Excellent work!", "You're absolutely on the right track!", "Impressive understanding!", etc.
+- Always provide constructive feedback on how they can improve even more, even when the answer is correct.`
 
         // Use the AI provider (same as genie service)
         const provider = process.env.AI_PROVIDER?.toLowerCase() === 'together' ? 'together' : 'ollama'
@@ -439,29 +444,28 @@ IMPORTANT: You MUST call the evaluate_student_answer function with a score (1-10
                     try {
                         const { blockchainService } = await import('../services/blockchain.service.js')
                         
-                        // Mint tokens for correct answer
-                        await blockchainService.mintTokens(walletAddress, tokensAwarded.toString())
-                        console.log(`✅ Minted ${tokensAwarded} tokens to ${walletAddress}`)
+                        // Generate quiz metadata for the NFT (if needed)
+                        const teacherIdHex = id.replace(/[^a-f0-9]/gi, '').slice(0, 8) || '00000000'
+                        const quizId = parseInt(teacherIdHex, 16) || 1
+                        const correctAnswers = score >= 7 ? 1 : 0
+                        const totalQuestions = 1
+                        const quizName = `${teacherDoc.topic} Quiz`
 
-                        // Mint NFT badge if earned
+                        // If NFT is awarded, use the combined minting function to avoid nonce issues
                         if (nftAwarded) {
-                            // Generate quiz metadata for the NFT
-                            // Create a consistent quiz ID from teacher ID (use first 8 chars of ObjectId as number)
-                            const teacherIdHex = id.replace(/[^a-f0-9]/gi, '').slice(0, 8) || '00000000'
-                            const quizId = parseInt(teacherIdHex, 16) || 1
-                            // For NFT: correctAnswers should be 1 if score >= 7 (mostly correct or better)
-                            const correctAnswers = score >= 7 ? 1 : 0
-                            const totalQuestions = 1 // Single question answered
-                            const quizName = `${teacherDoc.topic} Quiz` // Use teacher topic as quiz name
-                            
-                            await blockchainService.mintNFT(
+                            await blockchainService.mintTokensAndNFT(
                                 walletAddress,
+                                tokensAwarded.toString(),
                                 quizId,
                                 correctAnswers,
                                 totalQuestions,
                                 quizName
                             )
-                            console.log(`✅ Minted NFT badge to ${walletAddress} for ${teacherDoc.topic} (Quiz ID: ${quizId})`)
+                            console.log(`✅ Minted ${tokensAwarded} tokens and NFT badge to ${walletAddress} for ${teacherDoc.topic} (Quiz ID: ${quizId})`)
+                        } else {
+                            // Just mint tokens
+                            await blockchainService.mintTokens(walletAddress, tokensAwarded.toString())
+                            console.log(`✅ Minted ${tokensAwarded} tokens to ${walletAddress}`)
                         }
                     } catch (blockchainError) {
                         console.error('Error minting rewards on blockchain:', blockchainError)
@@ -586,7 +590,7 @@ teacher.post('/chat-history', async (c) => {
 
         // Convert messages to proper format
         const formattedMessages: TeacherChatMessage[] = messages.map((m: any) => ({
-            role: m.role === 'user' ? 'user' : 'teacher',
+            role: m.role === 'user' ? 'user' : m.role === 'reward' ? 'reward' : 'teacher',
             content: m.content,
             timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
             speakerName: m.speakerName
