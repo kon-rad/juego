@@ -48,5 +48,59 @@ export async function getWorldObjectsCollection(): Promise<Collection> {
   return database.collection('worldObjects')
 }
 
+export async function getAICharactersCollection(): Promise<Collection> {
+  const database = await getDb()
+  return database.collection('aiCharacters')
+}
+
+export async function getVapiCallsCollection(): Promise<Collection> {
+  const database = await getDb()
+  return database.collection('vapiCalls')
+}
+
+// Type definitions for AI Characters and Players
+export interface AICharacter {
+  _id?: ObjectId
+  name: string
+  personality: string
+  systemPrompt: string
+  voiceSettings: {
+    voiceId?: string
+    speed?: number
+    stability?: number
+    similarityBoost?: number
+  }
+  avatar?: string
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface PlayerProfile {
+  _id?: ObjectId
+  worldId?: string
+  name: string
+  avatarColor: string
+  x: number
+  y: number
+  isAI: boolean
+  biography?: string
+  score: number
+  interests?: string[]
+  level?: number
+  lastActive?: Date
+  createdAt?: Date
+}
+
+export interface VapiCall {
+  _id?: ObjectId
+  callId: string
+  characterId: string
+  userId: string
+  status: 'initiating' | 'ringing' | 'in-progress' | 'ended' | 'failed'
+  startedAt: Date
+  endedAt?: Date
+  metadata?: Record<string, any>
+}
+
 // Export ObjectId for use in routes
 export { ObjectId }

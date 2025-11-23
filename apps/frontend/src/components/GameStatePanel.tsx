@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { Sparkles } from 'lucide-react';
+import GenieSvg from './GenieSvg';
 
 interface GameStatePanelProps {
     currentPosition?: { x: number; y: number };
@@ -11,6 +13,7 @@ interface GameStatePanelProps {
     fps?: number;
     onSettingsChange?: (settings: { name: string; color: string }) => void;
     currentSettings?: { name: string; color: string };
+    onSummonGenie?: () => void;
 }
 
 interface PlayerSettings {
@@ -24,15 +27,16 @@ const PRESET_COLORS = [
     '#FF9999', '#66B2FF', '#99FF99', '#FFCC99', '#FF99CC'
 ];
 
-export default function GameStatePanel({ 
-    currentPosition, 
-    playerCount = 1, 
-    isConnected = true, 
-    agentCount = 1, 
-    tick = 0, 
+export default function GameStatePanel({
+    currentPosition,
+    playerCount = 1,
+    isConnected = true,
+    agentCount = 1,
+    tick = 0,
     fps = 60,
     onSettingsChange,
-    currentSettings
+    currentSettings,
+    onSummonGenie
 }: GameStatePanelProps) {
     const [showSettings, setShowSettings] = useState(false);
     const [settings, setSettings] = useState<PlayerSettings>({
@@ -145,6 +149,19 @@ export default function GameStatePanel({
                         <span className="text-ghost-green uppercase tracking-wider">FPS:</span>
                         <span className="text-matrix-green">{fps}</span>
                     </div>
+                    <div className="h-8 w-px bg-matrix-green/30"></div>
+                    {/* Genie Button */}
+                    <button
+                        onClick={onSummonGenie}
+                        className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-amber-600/30 to-amber-500/20 border border-amber-400/50 rounded-lg hover:from-amber-500/40 hover:to-amber-400/30 hover:border-amber-300/70 transition-all group"
+                        title="Summon the Learning Genie"
+                    >
+                        <GenieSvg size={24} />
+                        <span className="text-amber-300 uppercase tracking-wider font-bold group-hover:text-amber-200 transition-colors">
+                            Genie
+                        </span>
+                        <Sparkles size={14} className="text-amber-400 group-hover:text-amber-300" />
+                    </button>
                 </div>
             </div>
 

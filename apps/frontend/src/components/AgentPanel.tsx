@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Brain, MessageSquare, Settings } from 'lucide-react';
+import { Brain, MessageSquare, Settings, Phone } from 'lucide-react';
+import AICharacterList from './AICharacterList';
 
 export interface AgentLog {
     id: string;
@@ -12,10 +13,11 @@ export interface AgentLog {
 
 interface AgentPanelProps {
     logs: AgentLog[];
+    playerId?: string;
 }
 
-export default function AgentPanel({ logs }: AgentPanelProps) {
-    const [activeTab, setActiveTab] = useState<'thinking' | 'conversations' | 'settings'>('thinking');
+export default function AgentPanel({ logs, playerId }: AgentPanelProps) {
+    const [activeTab, setActiveTab] = useState<'thinking' | 'conversations' | 'voice' | 'settings'>('thinking');
 
     return (
         <div className="flex h-full w-full bg-terminal-black text-matrix-green border-l-2 border-matrix-green/30">
@@ -42,6 +44,16 @@ export default function AgentPanel({ logs }: AgentPanelProps) {
                     <MessageSquare size={24} />
                 </button>
                 <button
+                    onClick={() => setActiveTab('voice')}
+                    className={`p-4 flex justify-center transition-all duration-200 ${activeTab === 'voice'
+                            ? 'bg-matrix-dark border-l-2 border-matrix-green text-matrix-green'
+                            : 'text-ghost-green hover:text-dim-green hover:bg-dark-green'
+                        }`}
+                    title="Voice Calls"
+                >
+                    <Phone size={24} />
+                </button>
+                <button
                     onClick={() => setActiveTab('settings')}
                     className={`p-4 flex justify-center transition-all duration-200 ${activeTab === 'settings'
                             ? 'bg-matrix-dark border-l-2 border-matrix-green text-matrix-green'
@@ -56,7 +68,9 @@ export default function AgentPanel({ logs }: AgentPanelProps) {
             {/* Content Area */}
             <div className="flex-1 flex flex-col h-full overflow-hidden">
                 <div className="p-4 border-b border-matrix-green/30 bg-code-black">
-                    <h2 className="text-lg font-semibold uppercase tracking-wider text-matrix-green text-glow">{activeTab}</h2>
+                    <h2 className="text-lg font-semibold uppercase tracking-wider text-matrix-green text-glow">
+                        {activeTab === 'voice' ? 'Voice Calls' : activeTab}
+                    </h2>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -104,6 +118,18 @@ export default function AgentPanel({ logs }: AgentPanelProps) {
                             {logs.filter(l => l.type === 'converse').length === 0 && (
                                 <div className="text-ghost-green text-center mt-10 font-mono uppercase text-sm tracking-wider">
                                     No conversations yet...
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {activeTab === 'voice' && (
+                        <div className="space-y-4">
+                            {playerId ? (
+                                <AICharacterList userId={playerId} />
+                            ) : (
+                                <div className="text-ghost-green text-center mt-10 font-mono uppercase text-sm tracking-wider">
+                                    Join the game to access voice calls...
                                 </div>
                             )}
                         </div>

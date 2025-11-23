@@ -5,6 +5,7 @@ import GameCanvas, { NearbyPlayer } from '@/components/GameCanvas';
 import AgentPanel, { AgentLog } from '@/components/AgentPanel';
 import GameStatePanel from '@/components/GameStatePanel';
 import MenuBar from '@/components/MenuBar';
+import GenieChatModal from '@/components/GenieChatModal';
 
 export default function Home() {
   const [logs, setLogs] = useState<AgentLog[]>([]);
@@ -13,6 +14,8 @@ export default function Home() {
   const [playerCount, setPlayerCount] = useState(1);
   const [isConnected, setIsConnected] = useState(false);
   const [nearbyPlayers, setNearbyPlayers] = useState<NearbyPlayer[]>([]);
+  const [isGenieVisible, setIsGenieVisible] = useState(false);
+  const [showGenieChat, setShowGenieChat] = useState(false);
 
   const handleAgentAction = (action: any) => {
     const newLog: AgentLog = {
@@ -48,6 +51,25 @@ export default function Home() {
     setLogs(prev => [newLog, ...prev]);
   };
 
+  const handleSummonGenie = () => {
+    setIsGenieVisible(true);
+    setShowGenieChat(true);
+    // Add a log entry for summoning the genie
+    const newLog: AgentLog = {
+      id: Math.random().toString(36).substring(7),
+      timestamp: new Date(),
+      type: 'converse',
+      content: { message: 'Summoned the Learning Genie!' }
+    };
+    setLogs(prev => [newLog, ...prev]);
+  };
+
+  const handleCloseGenieChat = () => {
+    setShowGenieChat(false);
+    // Keep genie visible in the game world for a bit, or hide immediately
+    setIsGenieVisible(false);
+  };
+
   return (
     <main className="h-screen w-screen overflow-hidden bg-deep-black grid grid-cols-[1fr_384px] grid-rows-[32px_1fr_80px]">
       {/* Menu Bar - Top (spans both columns) */}
@@ -64,6 +86,7 @@ export default function Home() {
           onNearbyPlayersChange={handleNearbyPlayersChange}
           onPlayerCountChange={setPlayerCount}
           autoMode={autoMode}
+          isGenieVisible={isGenieVisible}
         />
 
         {/* Nearby Players Conversation Menu */}
@@ -103,15 +126,23 @@ export default function Home() {
 
       {/* Game State Panel - Bottom Left */}
       <div className="h-20">
-        <GameStatePanel 
+        <GameStatePanel
           currentPosition={currentPosition}
           playerCount={playerCount}
           isConnected={isConnected}
           agentCount={autoMode ? 1 : 0}
           tick={0}
           fps={60}
+          onSummonGenie={handleSummonGenie}
         />
       </div>
+
+      {/* Genie Chat Modal */}
+      <GenieChatModal
+        isOpen={showGenieChat}
+        onClose={handleCloseGenieChat}
+        playerPosition={currentPosition || { x: 0, y: 0 }}
+      />
     </main>
   );
 }

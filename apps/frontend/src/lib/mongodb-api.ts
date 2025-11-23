@@ -190,3 +190,101 @@ export async function deletePlayerFromMongoDB(mongodbId: string): Promise<boolea
         return false;
     }
 }
+
+/**
+ * Get player profile by ID
+ */
+export async function getPlayerProfile(playerId: string): Promise<MongoDBPlayer | null> {
+    try {
+        const response = await fetch(`${API_URL}/api/player/${playerId}`);
+
+        if (!response.ok) {
+            console.error('Failed to get player profile:', response.statusText);
+            return null;
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error getting player profile:', error);
+        return null;
+    }
+}
+
+/**
+ * Update player profile
+ */
+export async function updatePlayerProfile(
+    playerId: string,
+    profileData: {
+        biography?: string;
+        score?: number;
+        interests?: string[];
+        level?: number;
+        name?: string;
+        avatarColor?: string;
+    }
+): Promise<MongoDBPlayer | null> {
+    try {
+        const response = await fetch(`${API_URL}/api/player/${playerId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(profileData)
+        });
+
+        if (!response.ok) {
+            console.error('Failed to update player profile:', response.statusText);
+            return null;
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error updating player profile:', error);
+        return null;
+    }
+}
+
+/**
+ * Add score to player
+ */
+export async function addPlayerScore(playerId: string, points: number): Promise<MongoDBPlayer | null> {
+    try {
+        const response = await fetch(`${API_URL}/api/player/${playerId}/score`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ points })
+        });
+
+        if (!response.ok) {
+            console.error('Failed to add player score:', response.statusText);
+            return null;
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error adding player score:', error);
+        return null;
+    }
+}
+
+/**
+ * Add interest to player
+ */
+export async function addPlayerInterest(playerId: string, interest: string): Promise<MongoDBPlayer | null> {
+    try {
+        const response = await fetch(`${API_URL}/api/player/${playerId}/interests`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ interest })
+        });
+
+        if (!response.ok) {
+            console.error('Failed to add player interest:', response.statusText);
+            return null;
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error adding player interest:', error);
+        return null;
+    }
+}

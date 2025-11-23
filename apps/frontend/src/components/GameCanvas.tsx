@@ -40,6 +40,7 @@ interface GameCanvasProps {
     onPlayerCountChange?: (count: number) => void;
     autoMode?: boolean;
     proximityThreshold?: number;
+    isGenieVisible?: boolean;
 }
 
 export default function GameCanvas({
@@ -49,7 +50,8 @@ export default function GameCanvas({
     onNearbyPlayersChange,
     onPlayerCountChange,
     autoMode = true,
-    proximityThreshold = 150
+    proximityThreshold = 150,
+    isGenieVisible = false
 }: GameCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<Application | null>(null);
@@ -59,6 +61,8 @@ export default function GameCanvas({
     const worldRef = useRef<Graphics | null>(null);
     const playerRef = useRef<Graphics | null>(null);
     const playerLabelRef = useRef<Text | null>(null);
+    const genieGraphicsRef = useRef<Graphics | null>(null);
+    const genieLabelRef = useRef<Text | null>(null);
     
     const [currentPlayer, setCurrentPlayer] = useState<PlayerData | null>(null);
     const [otherPlayers, setOtherPlayers] = useState<SocketPlayer[]>([]);
@@ -587,6 +591,74 @@ export default function GameCanvas({
             }
         });
     }, [otherPlayers, currentPlayer]);
+
+    // Handle Genie visibility - spawn next to player when visible
+    useEffect(() => {
+        const world = worldRef.current;
+        const player = playerRef.current;
+
+        if (!world || !player) return;
+
+        if (isGenieVisible) {
+            // Create genie if it doesn't exist
+            if (!genieGraphicsRef.current) {
+                const genie = new Graphics();
+
+                // Gold genie body - lamp smoke shape
+                genie.circle(0, 0, 25);
+                genie.fill(0xFFD700); // Gold color
+
+                // Add a glow effect with outer circle
+                const genieGlow = new Graphics();
+                genieGlow.circle(0, 0, 30);
+                genieGlow.fill({ color: 0xFFA500, alpha: 0.3 });
+                world.addChild(genieGlow);
+
+                // Position genie next to player (offset by 60px to the right)
+                genie.x = player.x + 60;
+                genie.y = player.y;
+                genieGlow.x = genie.x;
+                genieGlow.y = genie.y;
+
+                world.addChild(genie);
+                genieGraphicsRef.current = genie;
+
+                // Add genie label
+                const genieLabel = new Text({
+                    text: 'Learning Genie',
+                    style: {
+                        fill: '#FFD700',
+                        fontSize: 12,
+                        fontWeight: 'bold'
+                    }
+                });
+                genieLabel.x = genie.x - genieLabel.width / 2;
+                genieLabel.y = genie.y - 45;
+                world.addChild(genieLabel);
+                genieLabelRef.current = genieLabel;
+            } else {
+                // Update genie position to follow player
+                const genie = genieGraphicsRef.current;
+                const label = genieLabelRef.current;
+                genie.x = player.x + 60;
+                genie.y = player.y;
+                if (label) {
+                    label.x = genie.x - label.width / 2;
+                    label.y = genie.y - 45;
+                }
+            }
+        } else {
+            // Remove genie when not visible
+            if (genieGraphicsRef.current) {
+                world.removeChild(genieGraphicsRef.current);
+                genieGraphicsRef.current = null;
+            }
+            if (genieLabelRef.current) {
+                world.removeChild(genieLabelRef.current);
+                genieLabelRef.current = null;
+            }
+        }
+    }, [isGenieVisible, currentPlayer]);
 
     return <div ref={containerRef} className="relative w-full h-full" />;
 }

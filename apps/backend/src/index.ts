@@ -5,6 +5,10 @@ import { connectToMongoDB } from './lib/mongodb.js'
 import { initSocketServer } from './lib/socket.js'
 import { agent } from './routes/agent.js'
 import { game } from './routes/game.js'
+import { aiCharacter } from './routes/ai-character.js'
+import { player } from './routes/player.js'
+import { vapi } from './routes/vapi.js'
+import { genie } from './routes/genie.js'
 
 const app = new Hono()
 
@@ -12,6 +16,10 @@ app.use('/*', cors())
 
 app.route('/api/agent', agent)
 app.route('/api/game', game)
+app.route('/api/ai-character', aiCharacter)
+app.route('/api/player', player)
+app.route('/api/vapi', vapi)
+app.route('/api/genie', genie)
 
 app.get('/', (c) => {
   return c.text('Juego Backend API')
