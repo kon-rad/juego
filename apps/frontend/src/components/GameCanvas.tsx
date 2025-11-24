@@ -5,7 +5,8 @@ import { Application, Graphics, Text } from 'pixi.js';
 import {
     getOrCreatePlayerFromMongoDB,
     setPlayerPosition,
-    PlayerData
+    PlayerData,
+    getOrCreatePlayerName
 } from '@/lib/player';
 import {
     updatePlayerPositionInMongoDB,
@@ -53,11 +54,13 @@ interface GameCanvasProps {
     onNearbyPlayersChange?: (players: NearbyPlayer[]) => void;
     onPlayerCountChange?: (count: number) => void;
     onPlayerIdChange?: (playerId: string) => void;
+    onMongoDBPlayerIdChange?: (mongodbId: string) => void;
     onNearbyTeachersChange?: (teachers: NearbyTeacher[]) => void;
     autoMode?: boolean;
     proximityThreshold?: number;
     isGenieVisible?: boolean;
     teachers?: Teacher[];
+    playerNameUpdateTrigger?: number;
 }
 
 export default function GameCanvas({
@@ -67,11 +70,13 @@ export default function GameCanvas({
     onNearbyPlayersChange,
     onPlayerCountChange,
     onPlayerIdChange,
+    onMongoDBPlayerIdChange,
     onNearbyTeachersChange,
     autoMode = true,
     proximityThreshold = 150,
     isGenieVisible = false,
-    teachers = []
+    teachers = [],
+    playerNameUpdateTrigger = 0
 }: GameCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<Application | null>(null);
@@ -124,6 +129,11 @@ export default function GameCanvas({
             setCurrentPlayer(playerData);
             playerIdRef.current = playerData.id;
             onPlayerIdChange?.(playerData.id);
+
+            // Notify parent when MongoDB ID is ready
+            if (playerData.mongodbId) {
+                onMongoDBPlayerIdChange?.(playerData.mongodbId);
+            }
 
             // Load teachers from database
             const dbTeachers = await getTeachers();
@@ -233,6 +243,20 @@ export default function GameCanvas({
             window.removeEventListener('keyup', onKeyUp);
         };
     }, []);
+
+    // Update player label when name changes
+    useEffect(() => {
+        if (currentPlayer && playerLabelRef.current) {
+            const newName = getOrCreatePlayerName();
+            const labelText = newName + ' (You)';
+            playerLabelRef.current.text = labelText;
+            // Re-center the label
+            if (playerRef.current) {
+                playerLabelRef.current.x = playerRef.current.x - playerLabelRef.current.width / 2;
+            }
+            console.log('Updated player label to:', labelText);
+        }
+    }, [playerNameUpdateTrigger]);
 
     // Initialize PixiJS Application (runs once, no dependencies)
     useEffect(() => {

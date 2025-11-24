@@ -28,6 +28,7 @@ export default function Home() {
   const [walletAddress, setWalletAddress] = useState<string>('');
   const [balanceRefreshFn, setBalanceRefreshFn] = useState<(() => void) | null>(null);
   const lastRoninAddressRef = useRef<string | null>(null);
+  const [playerNameUpdateTrigger, setPlayerNameUpdateTrigger] = useState<number>(0);
 
   // Add logging to debug wallet initialization
   useEffect(() => {
@@ -91,9 +92,10 @@ export default function Home() {
   const handleStartConversation = async (player: NearbyPlayer) => {
     // Get MongoDB IDs for both players
     const currentPlayerMongoId = mongoDBPlayerId || getMongoDBPlayerId();
-    
+
     if (!currentPlayerMongoId) {
       console.error('Cannot start conversation: MongoDB player ID not found');
+      alert('Please wait a moment - your player profile is still loading...');
       return;
     }
 
@@ -182,9 +184,17 @@ export default function Home() {
 
   const handlePlayerIdChange = (id: string) => {
     setPlayerId(id);
-    // Also get the MongoDB ID
-    const mongoId = getMongoDBPlayerId();
+  };
+
+  const handleMongoDBPlayerIdChange = (mongoId: string) => {
+    console.log('MongoDB player ID ready:', mongoId);
     setMongoDBPlayerId(mongoId);
+  };
+
+  const handlePlayerNameChange = (newName: string) => {
+    console.log('Player name updated:', newName);
+    // Trigger GameCanvas to update the player label
+    setPlayerNameUpdateTrigger(prev => prev + 1);
   };
 
   const handleNearbyTeachersChange = (nearbyTeachersList: NearbyTeacher[]) => {
@@ -241,10 +251,12 @@ export default function Home() {
           onNearbyPlayersChange={handleNearbyPlayersChange}
           onPlayerCountChange={setPlayerCount}
           onPlayerIdChange={handlePlayerIdChange}
+          onMongoDBPlayerIdChange={handleMongoDBPlayerIdChange}
           onNearbyTeachersChange={handleNearbyTeachersChange}
           autoMode={autoMode}
           isGenieVisible={isGenieActive}
           teachers={teachers}
+          playerNameUpdateTrigger={playerNameUpdateTrigger}
         />
 
         {/* Nearby Players Conversation Menu */}
@@ -335,6 +347,7 @@ export default function Home() {
               balanceRefreshFn();
             }
           }}
+          onPlayerNameChange={handlePlayerNameChange}
         />
       </div>
 

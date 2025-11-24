@@ -6,7 +6,7 @@ import AICharacterList from './AICharacterList';
 import GenieSvg from './GenieSvg';
 import { Teacher, chatWithTeacher, getPlayerConversations, getChatMessages, sendChatMessage, getTeachers, getPlayerTeacherChatHistories, saveTeacherChatHistory, getPlayerProfile, updatePlayerProfile, type Chat, type ChatMessage as PlayerChatMessage, type TeacherChatHistoryResponse } from '@/lib/mongodb-api';
 import { onChatMessage, type ChatMessageEvent } from '@/lib/socket';
-import { getMongoDBPlayerId } from '@/lib/player';
+import { getMongoDBPlayerId, setPlayerName } from '@/lib/player';
 import { mintTokens, mintNFT } from '@/lib/blockchain-api';
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '');
@@ -64,6 +64,7 @@ interface AgentPanelProps {
     onActivePlayerChatChange?: (chat: ActivePlayerChat | null) => void;
     onScoreUpdate?: (newScore: number) => void;
     onBalanceRefresh?: () => void;
+    onPlayerNameChange?: (newName: string) => void;
 }
 
 const GENIE_INTRO = `Greetings, seeker of knowledge! I am the Learning Genie. Tell me, what subject or skill do you wish to master today? I shall summon the perfect guide to teach you!`;
@@ -81,7 +82,8 @@ export default function AgentPanel({
     activePlayerChat: externalActivePlayerChat,
     onActivePlayerChatChange,
     onScoreUpdate,
-    onBalanceRefresh
+    onBalanceRefresh,
+    onPlayerNameChange
 }: AgentPanelProps) {
     const [internalActiveTab, setInternalActiveTab] = useState<'thinking' | 'conversations' | 'voice' | 'settings'>('thinking');
     const activeTab = externalActiveTab ?? internalActiveTab;
@@ -728,19 +730,16 @@ export default function AgentPanel({
         setIsSavingProfile(true);
         try {
             const profileData: any = {};
-            
-            if (updates?.userName !== undefined) {
-                profileData.userName = updates.userName;
-            } else {
-                profileData.userName = userName;
-            }
-            
+
+            const newUserName = updates?.userName !== undefined ? updates.userName : userName;
+            profileData.userName = newUserName;
+
             if (updates?.biography !== undefined) {
                 profileData.biography = updates.biography;
             } else {
                 profileData.biography = bio;
             }
-            
+
             if (updates?.interests !== undefined) {
                 profileData.interests = updates.interests;
             } else {
@@ -750,6 +749,13 @@ export default function AgentPanel({
             }
 
             await updatePlayerProfile(mongoId, profileData);
+
+            // Also update the display name in localStorage for game canvas
+            if (newUserName) {
+                setPlayerName(newUserName);
+                // Notify parent so game canvas can update the label
+                onPlayerNameChange?.(newUserName);
+            }
         } catch (error) {
             console.error('Error saving player profile:', error);
             alert('Failed to save profile. Please try again.');
