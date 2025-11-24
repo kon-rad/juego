@@ -27,7 +27,7 @@ import {
     Player as SocketPlayer
 } from '@/lib/socket';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '');
 
 export interface NearbyPlayer {
     id: string;
@@ -511,7 +511,7 @@ export default function GameCanvas({
                 };
 
                 try {
-                    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/agent/tick`, {
+                    const response = await fetch(`${API_BASE_URL}/api/agent/tick`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ state })

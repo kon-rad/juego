@@ -5,6 +5,8 @@ import { Sparkles } from 'lucide-react';
 import GenieSvg from './GenieSvg';
 import { getBlockchainStats, type BlockchainStats } from '@/lib/blockchain-api';
 
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '');
+
 interface GameStatePanelProps {
     currentPosition?: { x: number; y: number };
     playerCount?: number;
@@ -88,7 +90,7 @@ export default function GameStatePanel({
         setSaveMessage('');
 
         try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/player/settings`, {
+            const response = await fetch(`${API_URL}/api/player/settings`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

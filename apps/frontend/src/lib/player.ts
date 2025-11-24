@@ -177,7 +177,8 @@ export function clearPlayerData(): void {
  */
 export async function getAllPlayers(): Promise<PlayerData[]> {
     try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/players`);
+        const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '');
+        const response = await fetch(`${API_URL}/api/game/players`);
         if (response.ok) {
             return await response.json();
         }

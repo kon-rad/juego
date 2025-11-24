@@ -9,6 +9,8 @@ import { onChatMessage, type ChatMessageEvent } from '@/lib/socket';
 import { getMongoDBPlayerId } from '@/lib/player';
 import { mintTokens, mintNFT } from '@/lib/blockchain-api';
 
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '');
+
 export interface AgentLog {
     id: string;
     timestamp: Date;
@@ -530,7 +532,7 @@ export default function AgentPanel({
                 }
             } else {
                 // Chatting with genie
-                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/genie/chat`, {
+                const response = await fetch(`${API_URL}/api/genie/chat`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -774,7 +776,7 @@ export default function AgentPanel({
             }
 
             // Generate a new wallet and save it to the player document
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/player/wallet`, {
+            const response = await fetch(`${API_URL}/api/player/wallet`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ playerId: mongoId })
@@ -807,7 +809,7 @@ export default function AgentPanel({
             }
 
             // Get the private key from the backend
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/player/wallet`, {
+            const response = await fetch(`${API_URL}/api/player/wallet`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -848,7 +850,7 @@ export default function AgentPanel({
 
         try {
             // Call backend to create or retrieve the chat
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/chat/conversation`, {
+            const response = await fetch(`${API_URL}/api/chat/conversation`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ participant1Id: playerId, participant2Id: otherPlayerId })

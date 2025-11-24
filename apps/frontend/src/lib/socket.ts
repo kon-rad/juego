@@ -14,7 +14,7 @@ let socket: Socket | null = null;
 
 export function getSocket(): Socket {
     if (!socket) {
-        const socketUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+        const socketUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '');
         console.log('[Socket] Connecting to:', socketUrl);
         socket = io(socketUrl, {
             autoConnect: false,

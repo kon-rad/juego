@@ -8,6 +8,8 @@ import MenuBar from '@/components/MenuBar';
 import { Teacher, getOrCreateChat } from '@/lib/mongodb-api';
 import { getMongoDBPlayerId } from '@/lib/player';
 
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '');
+
 export default function Home() {
   const [logs, setLogs] = useState<AgentLog[]>([]);
   const [autoMode, setAutoMode] = useState(false);
@@ -41,7 +43,7 @@ export default function Home() {
         } else {
           // Create a new wallet
           console.log('No wallet found, generating a new one...');
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/blockchain/wallet/generate`, {
+          const response = await fetch(`${API_URL}/api/blockchain/wallet/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
           });
@@ -102,7 +104,7 @@ export default function Home() {
       console.error('Cannot start conversation: Other player MongoDB ID not found. Player may not be synced with database yet.');
       // Fallback: try to find by name/avatar (less reliable)
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/game/players`);
+        const response = await fetch(`${API_URL}/api/game/players`);
         const allPlayers = await response.json();
         const otherPlayer = allPlayers.find((p: any) => 
           p.name === player.name && p.avatarColor === player.avatarColor
