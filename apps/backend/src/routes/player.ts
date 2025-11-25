@@ -149,12 +149,22 @@ player.post('/wallet', async (c) => {
         const playersCollection = await getPlayersCollection();
         const adminCollection = await getAdminCollection();
 
-        // Fetch the master key from the admin collection
-        const adminDoc = await adminCollection.findOne({ key: 'masterKey' });
+        // Fetch or create the master key from the admin collection
+        let adminDoc = await adminCollection.findOne({ key: 'masterKey' });
+        let masterKey: string;
+
         if (!adminDoc) {
-            return c.json({ error: 'Master key not found' }, 500);
+            // Generate a master key if it doesn't exist
+            masterKey = crypto.randomBytes(32).toString('hex');
+            await adminCollection.insertOne({
+                key: 'masterKey',
+                value: masterKey,
+                createdAt: new Date()
+            });
+            console.log('Master key initialized in database');
+        } else {
+            masterKey = adminDoc.value;
         }
-        const masterKey = adminDoc.value;
 
         if (publicAddress) {
             // Retrieve the encrypted private key for the existing wallet

@@ -7,7 +7,7 @@ import crypto from 'crypto';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const CONTRACTS_CONFIG_PATH = path.resolve(
+const LOCAL_CONTRACTS_CONFIG_PATH = path.resolve(
   __dirname,
   '../lib/contracts.json'
 );
@@ -16,6 +16,30 @@ const DEPLOYED_ADDRESSES_PATH = path.resolve(
   __dirname,
   '../../../contracts/deployed-addresses.json'
 );
+
+// Helper to get blockchain configuration based on environment
+function getBlockchainConfig() {
+  const blockchainEnv = process.env.BLOCKCHAIN_ENV || 'local';
+
+  if (blockchainEnv === 'production') {
+    return {
+      mode: 'production',
+      rpcUrl: process.env.PRODUCTION_RPC_URL || process.env.RPC_URL || 'http://127.0.0.1:8545',
+      adminPrivateKey: process.env.PRODUCTION_ADMIN_PRIVATE_KEY || process.env.ADMIN_PRIVATE_KEY,
+      learnTokenAddress: process.env.PRODUCTION_LEARN_TOKEN_ADDRESS,
+      badgeNFTAddress: process.env.PRODUCTION_BADGE_NFT_ADDRESS,
+      useEnvAddresses: !!(process.env.PRODUCTION_LEARN_TOKEN_ADDRESS && process.env.PRODUCTION_BADGE_NFT_ADDRESS)
+    };
+  } else {
+    // Default to local
+    return {
+      mode: 'local',
+      rpcUrl: process.env.LOCAL_RPC_URL || process.env.RPC_URL || 'http://127.0.0.1:8545',
+      adminPrivateKey: process.env.LOCAL_ADMIN_PRIVATE_KEY || process.env.ADMIN_PRIVATE_KEY,
+      useEnvAddresses: false // Always use contracts.json for local
+    };
+  }
+}
 
 export class BlockchainService {
   private provider!: ethers.JsonRpcProvider;
@@ -33,57 +57,111 @@ export class BlockchainService {
   private async ensureInitialized() {
     if (this.initialized) return;
 
-    const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
-    const adminPrivateKey = process.env.ADMIN_PRIVATE_KEY;
+    const config = getBlockchainConfig();
 
-    if (!adminPrivateKey) {
-      throw new Error('Admin wallet private key not configured. Set ADMIN_PRIVATE_KEY in environment variables.');
+    console.log('Initializing blockchain service...');
+    console.log(`  Mode: ${config.mode.toUpperCase()}`);
+    console.log(`  RPC URL: ${config.rpcUrl}`);
+
+    if (!config.adminPrivateKey) {
+      throw new Error(`Admin wallet private key not configured. Set ${config.mode === 'production' ? 'PRODUCTION_ADMIN_PRIVATE_KEY' : 'LOCAL_ADMIN_PRIVATE_KEY'} in environment variables.`);
     }
 
     try {
-      this.provider = new ethers.JsonRpcProvider(rpcUrl);
-      this.adminWallet = new ethers.Wallet(adminPrivateKey, this.provider);
+      this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
 
-      // Load contract config (ABI and addresses)
-      if (!fs.existsSync(CONTRACTS_CONFIG_PATH)) {
-        throw new Error(`Contracts config file not found at ${CONTRACTS_CONFIG_PATH}. Please copy contracts.json first.`);
+      // Test connection to blockchain
+      console.log('Testing blockchain connection...');
+      const network = await this.provider.getNetwork();
+      console.log(`  Connected to network: chainId=${network.chainId}`);
+
+      this.adminWallet = new ethers.Wallet(config.adminPrivateKey, this.provider);
+
+      let learnTokenAddress: string;
+      let badgeNFTAddress: string;
+      let learnTokenAbi: any;
+      let badgeNFTAbi: any;
+
+      if (config.useEnvAddresses && config.learnTokenAddress && config.badgeNFTAddress) {
+        // Production mode with addresses in env vars
+        console.log('Using contract addresses from environment variables');
+        learnTokenAddress = config.learnTokenAddress;
+        badgeNFTAddress = config.badgeNFTAddress;
+
+        // Try to load ABIs from contracts.json if available
+        if (fs.existsSync(LOCAL_CONTRACTS_CONFIG_PATH)) {
+          const contractsConfig = JSON.parse(fs.readFileSync(LOCAL_CONTRACTS_CONFIG_PATH, 'utf-8'));
+          learnTokenAbi = contractsConfig.learnToken?.abi;
+          badgeNFTAbi = contractsConfig.badgeNFT?.abi;
+        }
+
+        // If ABIs not in contracts.json, try to load from artifacts
+        if (!learnTokenAbi || !badgeNFTAbi) {
+          console.log('Loading ABIs from contract artifacts...');
+          const learnTokenArtifactPath = path.resolve(__dirname, '../../../contracts/artifacts/contracts/LearnToken.sol/LearnToken.json');
+          const badgeNFTArtifactPath = path.resolve(__dirname, '../../../contracts/artifacts/contracts/BadgeNFT.sol/BadgeNFT.json');
+
+          if (fs.existsSync(learnTokenArtifactPath) && fs.existsSync(badgeNFTArtifactPath)) {
+            learnTokenAbi = JSON.parse(fs.readFileSync(learnTokenArtifactPath, 'utf-8')).abi;
+            badgeNFTAbi = JSON.parse(fs.readFileSync(badgeNFTArtifactPath, 'utf-8')).abi;
+          } else {
+            throw new Error('Contract ABIs not found. Please run contract compilation or provide contracts.json');
+          }
+        }
+      } else {
+        // Local mode - use contracts.json
+        console.log(`Loading contract config from: ${LOCAL_CONTRACTS_CONFIG_PATH}`);
+
+        if (!fs.existsSync(LOCAL_CONTRACTS_CONFIG_PATH)) {
+          throw new Error(`Contracts config file not found at ${LOCAL_CONTRACTS_CONFIG_PATH}. Please run 'npm run deploy:localhost' in contracts directory.`);
+        }
+
+        const contractsConfig = JSON.parse(fs.readFileSync(LOCAL_CONTRACTS_CONFIG_PATH, 'utf-8'));
+
+        if (!contractsConfig.learnToken || !contractsConfig.badgeNFT) {
+          throw new Error('Contract configuration not found in contracts.json.');
+        }
+
+        if (!contractsConfig.learnToken.address || !contractsConfig.badgeNFT.address) {
+          throw new Error('Contract addresses not found in contracts.json. Please run deployment script.');
+        }
+
+        if (!contractsConfig.learnToken.abi || !contractsConfig.badgeNFT.abi) {
+          throw new Error('Contract ABIs not found in contracts.json.');
+        }
+
+        learnTokenAddress = contractsConfig.learnToken.address;
+        badgeNFTAddress = contractsConfig.badgeNFT.address;
+        learnTokenAbi = contractsConfig.learnToken.abi;
+        badgeNFTAbi = contractsConfig.badgeNFT.abi;
       }
 
-      const contractsConfig = JSON.parse(
-        fs.readFileSync(CONTRACTS_CONFIG_PATH, 'utf-8')
-      );
-
-      if (!contractsConfig.learnToken || !contractsConfig.badgeNFT) {
-        throw new Error('Contract configuration not found in contracts.json. Please ensure the file is properly configured.');
-      }
-
-      if (!contractsConfig.learnToken.address || !contractsConfig.badgeNFT.address) {
-        throw new Error('Contract addresses not found in contracts.json.');
-      }
-
-      if (!contractsConfig.learnToken.abi || !contractsConfig.badgeNFT.abi) {
-        throw new Error('Contract ABIs not found in contracts.json.');
-      }
-
+      // Initialize contracts
       this.learnTokenContract = new ethers.Contract(
-        contractsConfig.learnToken.address,
-        contractsConfig.learnToken.abi,
+        learnTokenAddress,
+        learnTokenAbi,
         this.adminWallet
       );
       this.badgeNFTContract = new ethers.Contract(
-        contractsConfig.badgeNFT.address,
-        contractsConfig.badgeNFT.abi,
+        badgeNFTAddress,
+        badgeNFTAbi,
         this.adminWallet
       );
 
+      // Test contract connections
+      console.log('Testing contract connections...');
+      const [tokenName, nftName] = await Promise.all([
+        this.learnTokenContract.name(),
+        this.badgeNFTContract.name()
+      ]);
+      console.log(`  Token contract: ${tokenName} at ${learnTokenAddress}`);
+      console.log(`  NFT contract: ${nftName} at ${badgeNFTAddress}`);
+
       this.initialized = true;
-      console.log('Blockchain service initialized successfully');
-      console.log(`  RPC URL: ${rpcUrl}`);
+      console.log('✅ Blockchain service initialized successfully');
       console.log(`  Admin wallet: ${this.adminWallet.address}`);
-      console.log(`  LearnToken: ${contractsConfig.learnToken.address}`);
-      console.log(`  BadgeNFT: ${contractsConfig.badgeNFT.address}`);
     } catch (error) {
-      console.error('Failed to initialize blockchain service:', error);
+      console.error('❌ Failed to initialize blockchain service:', error);
       throw error;
     }
   }
@@ -98,7 +176,7 @@ export class BlockchainService {
       return totalSupply.toString();
     } catch (error) {
       console.error('Error fetching NFT total supply:', error);
-      throw new Error('Failed to fetch NFT total supply');
+      throw error; // Re-throw the original error
     }
   }
 
@@ -114,7 +192,7 @@ export class BlockchainService {
       return ethers.formatUnits(totalSupply, decimals);
     } catch (error) {
       console.error('Error fetching token total supply:', error);
-      throw new Error('Failed to fetch token total supply');
+      throw error; // Re-throw the original error
     }
   }
 
@@ -128,7 +206,7 @@ export class BlockchainService {
       return balance.toString();
     } catch (error) {
       console.error('Error fetching NFT balance:', error);
-      throw new Error('Failed to fetch NFT balance');
+      throw error; // Re-throw the original error
     }
   }
 
@@ -143,7 +221,7 @@ export class BlockchainService {
       return ethers.formatUnits(balance, decimals);
     } catch (error) {
       console.error('Error fetching token balance:', error);
-      throw new Error('Failed to fetch token balance');
+      throw error; // Re-throw the original error
     }
   }
 
@@ -178,7 +256,7 @@ export class BlockchainService {
       };
     } catch (error) {
       console.error('Error fetching blockchain stats:', error);
-      throw new Error('Failed to fetch blockchain stats');
+      throw error; // Re-throw the original error instead of wrapping it
     }
   }
 
@@ -200,7 +278,7 @@ export class BlockchainService {
       };
     } catch (error) {
       console.error('Error fetching player stats:', error);
-      throw new Error('Failed to fetch player stats');
+      throw error; // Re-throw the original error instead of wrapping it
     }
   }
 

@@ -6,6 +6,7 @@
     "compile": "hardhat compile",
     "test": "hardhat test",
     "deploy:local": "hardhat deploy --network hardhat",
+    "deploy:localhost": "hardhat run scripts/deploy-local-and-sync.js --network localhost",
     "deploy:saigon": "hardhat deploy --network saigon",
     "deploy:ronin": "hardhat deploy --network ronin",
     "verify:saigon": "hardhat --network saigon sourcify --endpoint https://sourcify.roninchain.com/server",
