@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Application, Graphics, Text } from 'pixi.js';
+import { Application, Graphics, Text, Container } from 'pixi.js';
 import {
     getOrCreatePlayerFromMongoDB,
     setPlayerPosition,
@@ -27,6 +27,13 @@ import {
     onDisconnect,
     Player as SocketPlayer
 } from '@/lib/socket';
+import {
+    createCharacterSprite,
+    updateCharacterSprite,
+    getDirectionFromMovement,
+    CharacterSprite,
+    Direction
+} from '@/lib/character-sprite';
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '');
 
@@ -80,12 +87,13 @@ export default function GameCanvas({
 }: GameCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<Application | null>(null);
-    const playerGraphicsRef = useRef<{ [playerId: string]: Graphics }>({});
+    const playerGraphicsRef = useRef<{ [playerId: string]: CharacterSprite }>({});
     const playerLabelsRef = useRef<{ [playerId: string]: Text }>({});
     const keysRef = useRef<{ [key: string]: boolean }>({});
     const worldRef = useRef<Graphics | null>(null);
-    const playerRef = useRef<Graphics | null>(null);
+    const playerRef = useRef<CharacterSprite | null>(null);
     const playerLabelRef = useRef<Text | null>(null);
+    const playerDirectionRef = useRef<Direction>('down');
     const genieGraphicsRef = useRef<Graphics | null>(null);
     const genieLabelRef = useRef<Text | null>(null);
     const teacherGraphicsRef = useRef<{ [teacherId: string]: Graphics }>({});
@@ -258,7 +266,7 @@ export default function GameCanvas({
             playerLabelRef.current.text = labelText;
             // Re-center the label
             if (playerRef.current) {
-                playerLabelRef.current.x = playerRef.current.x - playerLabelRef.current.width / 2;
+                playerLabelRef.current.x = playerRef.current.container.x - playerLabelRef.current.width / 2;
             }
             console.log('Updated player label to:', labelText);
         }
@@ -324,15 +332,12 @@ export default function GameCanvas({
             }
 
             // Create current player avatar with their color and spawn position
-            const player = new Graphics();
-            playerRef.current = player;
-            player.circle(0, 0, 20); // Make it larger for visibility
-            const colorNum = parseInt(currentPlayer.avatarColor.replace('#', ''), 16);
-            player.fill(colorNum);
-            player.x = currentPlayer.x;
-            player.y = currentPlayer.y;
-            world.addChild(player);
-            playerGraphicsRef.current[currentPlayer.id] = player;
+            const playerSprite = createCharacterSprite(currentPlayer.avatarColor);
+            playerRef.current = playerSprite;
+            playerSprite.container.x = currentPlayer.x;
+            playerSprite.container.y = currentPlayer.y;
+            world.addChild(playerSprite.container);
+            playerGraphicsRef.current[currentPlayer.id] = playerSprite;
 
             // Add player name label
             const playerLabel = new Text({
@@ -344,18 +349,18 @@ export default function GameCanvas({
                 }
             });
             playerLabelRef.current = playerLabel;
-            playerLabel.x = player.x - playerLabel.width / 2;
-            playerLabel.y = player.y - 40;
+            playerLabel.x = playerSprite.container.x - playerLabel.width / 2;
+            playerLabel.y = playerSprite.container.y - 40;
             world.addChild(playerLabel);
             playerLabelsRef.current[currentPlayer.id] = playerLabel;
 
             // Share initial player position with parent consumers (needed for genie placement)
-            onPlayerPositionChange?.({ x: player.x, y: player.y });
+            onPlayerPositionChange?.({ x: playerSprite.container.x, y: playerSprite.container.y });
 
             // Center camera on player initially
             const centerCameraOnPlayer = () => {
-                world.pivot.x = player.x;
-                world.pivot.y = player.y;
+                world.pivot.x = playerSprite.container.x;
+                world.pivot.y = playerSprite.container.y;
                 world.position.x = app.screen.width / 2;
                 world.position.y = app.screen.height / 2;
             };
@@ -374,9 +379,9 @@ export default function GameCanvas({
                 // Remove graphics for players that no longer exist
                 Object.keys(playerGraphicsRef.current).forEach(playerId => {
                     if (playerId !== currentPlayerId && !currentPlayers.find(p => p.id === playerId)) {
-                        const graphics = playerGraphicsRef.current[playerId];
+                        const sprite = playerGraphicsRef.current[playerId];
                         const label = playerLabelsRef.current[playerId];
-                        if (graphics) world.removeChild(graphics);
+                        if (sprite) world.removeChild(sprite.container);
                         if (label) world.removeChild(label);
                         delete playerGraphicsRef.current[playerId];
                         delete playerLabelsRef.current[playerId];
@@ -389,15 +394,12 @@ export default function GameCanvas({
                 // Add/update graphics for existing players
                 currentPlayers.forEach(playerData => {
                     if (!playerGraphicsRef.current[playerData.id]) {
-                        // Create new player graphics
-                        const otherPlayer = new Graphics();
-                        otherPlayer.circle(0, 0, 20);
-                        const otherColorNum = parseInt(playerData.avatarColor.replace('#', ''), 16);
-                        otherPlayer.fill(otherColorNum);
-                        otherPlayer.x = playerData.x;
-                        otherPlayer.y = playerData.y;
-                        world.addChild(otherPlayer);
-                        playerGraphicsRef.current[playerData.id] = otherPlayer;
+                        // Create new player sprite
+                        const otherPlayerSprite = createCharacterSprite(playerData.avatarColor);
+                        otherPlayerSprite.container.x = playerData.x;
+                        otherPlayerSprite.container.y = playerData.y;
+                        world.addChild(otherPlayerSprite.container);
+                        playerGraphicsRef.current[playerData.id] = otherPlayerSprite;
 
                         // Add player name label
                         const otherLabel = new Text({
@@ -408,17 +410,17 @@ export default function GameCanvas({
                                 fontWeight: 'bold'
                             }
                         });
-                        otherLabel.x = otherPlayer.x - otherLabel.width / 2;
-                        otherLabel.y = otherPlayer.y - 40;
+                        otherLabel.x = playerData.x - otherLabel.width / 2;
+                        otherLabel.y = playerData.y - 40;
                         world.addChild(otherLabel);
                         playerLabelsRef.current[playerData.id] = otherLabel;
                     } else {
                         // Update existing player graphics
-                        const graphics = playerGraphicsRef.current[playerData.id];
+                        const sprite = playerGraphicsRef.current[playerData.id];
                         const label = playerLabelsRef.current[playerData.id];
-                        if (graphics) {
-                            graphics.x = playerData.x;
-                            graphics.y = playerData.y;
+                        if (sprite) {
+                            sprite.container.x = playerData.x;
+                            sprite.container.y = playerData.y;
                         }
                         if (label) {
                             label.x = playerData.x - label.width / 2;
@@ -428,8 +430,8 @@ export default function GameCanvas({
 
                     // Check proximity to current player
                     if (playerRef.current) {
-                        const dx = playerData.x - playerRef.current.x;
-                        const dy = playerData.y - playerRef.current.y;
+                        const dx = playerData.x - playerRef.current.container.x;
+                        const dy = playerData.y - playerRef.current.container.y;
                         const distance = Math.sqrt(dx * dx + dy * dy);
 
                         if (distance <= proximityThreshold) {
@@ -452,10 +454,10 @@ export default function GameCanvas({
                 }
             };
 
-            // Enhanced game loop with fixed keyboard state reference and camera following
+            // Enhanced game loop with sprite animation and camera following
             app.ticker.add((ticker) => {
                 // Fixed speed for consistent movement
-                const speed = 8; // Fixed speed for better control
+                const speed = 8;
                 let dx = 0;
                 let dy = 0;
                 let moving = false;
@@ -481,26 +483,43 @@ export default function GameCanvas({
                     moving = true;
                 }
 
-                if (moving && playerRef.current && playerLabelRef.current) {
-                    const oldX = player.x;
-                    const oldY = player.y;
+                if (playerRef.current && playerLabelRef.current) {
+                    const playerSprite = playerRef.current;
+                    const oldX = playerSprite.container.x;
+                    const oldY = playerSprite.container.y;
 
-                    player.x += dx;
-                    player.y += dy;
+                    if (moving) {
+                        // Update position
+                        playerSprite.container.x += dx;
+                        playerSprite.container.y += dy;
 
-                    console.log(`Player moved from (${oldX.toFixed(1)}, ${oldY.toFixed(1)}) to (${player.x.toFixed(1)}, ${player.y.toFixed(1)})`);
+                        console.log(`Player moved from (${oldX.toFixed(1)}, ${oldY.toFixed(1)}) to (${playerSprite.container.x.toFixed(1)}, ${playerSprite.container.y.toFixed(1)})`);
 
-                    // Update player label position
-                    playerLabel.x = player.x - playerLabel.width / 2;
-                    playerLabel.y = player.y - 40;
+                        // Determine direction based on movement
+                        const direction = getDirectionFromMovement(dx, dy);
+                        playerDirectionRef.current = direction;
 
-                    // Notify parent component of position change immediately for responsive display
-                    if (onPlayerPositionChange) {
-                        onPlayerPositionChange({ x: player.x, y: player.y });
+                        // Update player label position
+                        playerLabel.x = playerSprite.container.x - playerLabel.width / 2;
+                        playerLabel.y = playerSprite.container.y - 40;
+
+                        // Notify parent component of position change immediately for responsive display
+                        if (onPlayerPositionChange) {
+                            onPlayerPositionChange({ x: playerSprite.container.x, y: playerSprite.container.y });
+                        }
+
+                        // Camera follow - always center on player
+                        centerCameraOnPlayer();
                     }
 
-                    // Camera follow - always center on player
-                    centerCameraOnPlayer();
+                    // Update sprite animation (handles both moving and standing)
+                    updateCharacterSprite(
+                        playerSprite,
+                        currentPlayer.avatarColor,
+                        playerDirectionRef.current,
+                        moving,
+                        ticker.deltaTime
+                    );
                 }
 
                 // Always render other players (even when not moving) to update their positions
@@ -510,14 +529,14 @@ export default function GameCanvas({
             // Position sync interval (every 2 seconds)
             positionSyncIntervalRef.current = setInterval(() => {
                 if (currentPlayer && isConnected && playerRef.current) {
-                    const newX = player.x;
-                    const newY = player.y;
-                    
+                    const newX = playerRef.current.container.x;
+                    const newY = playerRef.current.container.y;
+
                     console.log(`Syncing position: (${newX.toFixed(1)}, ${newY.toFixed(1)})`);
-                    
+
                     // Update localStorage
                     setPlayerPosition(newX, newY);
-                    
+
                     // Send position update to server
                     updatePlayerPosition({
                         id: currentPlayer.id,
@@ -533,10 +552,10 @@ export default function GameCanvas({
 
             // Agent Loop
             const runAgent = async () => {
-                if (!appRef.current || !autoMode) return;
+                if (!appRef.current || !autoMode || !playerRef.current) return;
 
                 const state = {
-                    player: { x: player.x, y: player.y },
+                    player: { x: playerRef.current.container.x, y: playerRef.current.container.y },
                     world: { width, height, obstacles }
                 };
 
@@ -557,16 +576,24 @@ export default function GameCanvas({
 
                     if (action.type === 'move') {
                         if (action.payload && playerRef.current && playerLabelRef.current) {
-                            player.x += (action.payload.dx || 0) * 10;
-                            player.y += (action.payload.dy || 0) * 10;
-                            playerLabel.x = player.x - playerLabel.width / 2;
-                            playerLabel.y = player.y - 40;
-                            
+                            const dx = (action.payload.dx || 0) * 10;
+                            const dy = (action.payload.dy || 0) * 10;
+
+                            playerRef.current.container.x += dx;
+                            playerRef.current.container.y += dy;
+                            playerLabel.x = playerRef.current.container.x - playerLabel.width / 2;
+                            playerLabel.y = playerRef.current.container.y - 40;
+
+                            // Update direction for agent movement
+                            if (dx !== 0 || dy !== 0) {
+                                playerDirectionRef.current = getDirectionFromMovement(dx, dy);
+                            }
+
                             // Notify parent component of position change for agent movement too
                             if (onPlayerPositionChange) {
-                                onPlayerPositionChange({ x: player.x, y: player.y });
+                                onPlayerPositionChange({ x: playerRef.current.container.x, y: playerRef.current.container.y });
                             }
-                            
+
                             // Update camera for agent movement too
                             centerCameraOnPlayer();
                         }
@@ -621,9 +648,9 @@ export default function GameCanvas({
         // Remove graphics for players that no longer exist
         Object.keys(playerGraphicsRef.current).forEach(playerId => {
             if (playerId !== currentPlayerId && !otherPlayers.find(p => p.id === playerId)) {
-                const graphics = playerGraphicsRef.current[playerId];
+                const sprite = playerGraphicsRef.current[playerId];
                 const label = playerLabelsRef.current[playerId];
-                if (graphics) world.removeChild(graphics);
+                if (sprite) world.removeChild(sprite.container);
                 if (label) world.removeChild(label);
                 delete playerGraphicsRef.current[playerId];
                 delete playerLabelsRef.current[playerId];
@@ -633,15 +660,12 @@ export default function GameCanvas({
         // Add/update graphics for existing players
         otherPlayers.forEach(playerData => {
             if (!playerGraphicsRef.current[playerData.id]) {
-                // Create new player graphics
-                const otherPlayer = new Graphics();
-                otherPlayer.circle(0, 0, 20);
-                const otherColorNum = parseInt(playerData.avatarColor.replace('#', ''), 16);
-                otherPlayer.fill(otherColorNum);
-                otherPlayer.x = playerData.x;
-                otherPlayer.y = playerData.y;
-                world.addChild(otherPlayer);
-                playerGraphicsRef.current[playerData.id] = otherPlayer;
+                // Create new player sprite
+                const otherPlayerSprite = createCharacterSprite(playerData.avatarColor);
+                otherPlayerSprite.container.x = playerData.x;
+                otherPlayerSprite.container.y = playerData.y;
+                world.addChild(otherPlayerSprite.container);
+                playerGraphicsRef.current[playerData.id] = otherPlayerSprite;
 
                 // Add player name label
                 const otherLabel = new Text({
@@ -652,17 +676,17 @@ export default function GameCanvas({
                         fontWeight: 'bold'
                     }
                 });
-                otherLabel.x = otherPlayer.x - otherLabel.width / 2;
-                otherLabel.y = otherPlayer.y - 40;
+                otherLabel.x = playerData.x - otherLabel.width / 2;
+                otherLabel.y = playerData.y - 40;
                 world.addChild(otherLabel);
                 playerLabelsRef.current[playerData.id] = otherLabel;
             } else {
-                // Update existing player graphics
-                const graphics = playerGraphicsRef.current[playerData.id];
+                // Update existing player sprite
+                const sprite = playerGraphicsRef.current[playerData.id];
                 const label = playerLabelsRef.current[playerData.id];
-                if (graphics) {
-                    graphics.x = playerData.x;
-                    graphics.y = playerData.y;
+                if (sprite) {
+                    sprite.container.x = playerData.x;
+                    sprite.container.y = playerData.y;
                 }
                 if (label) {
                     label.x = playerData.x - label.width / 2;
@@ -675,9 +699,9 @@ export default function GameCanvas({
     // Handle Genie visibility - spawn next to player when visible
     useEffect(() => {
         const world = worldRef.current;
-        const player = playerRef.current;
+        const playerSprite = playerRef.current;
 
-        if (!world || !player) return;
+        if (!world || !playerSprite) return;
 
         if (isGenieVisible) {
             // Create genie if it doesn't exist
@@ -695,8 +719,8 @@ export default function GameCanvas({
                 world.addChild(genieGlow);
 
                 // Position genie next to player (offset by 60px to the right)
-                genie.x = player.x + 60;
-                genie.y = player.y;
+                genie.x = playerSprite.container.x + 60;
+                genie.y = playerSprite.container.y;
                 genieGlow.x = genie.x;
                 genieGlow.y = genie.y;
 
@@ -720,8 +744,8 @@ export default function GameCanvas({
                 // Update genie position to follow player
                 const genie = genieGraphicsRef.current;
                 const label = genieLabelRef.current;
-                genie.x = player.x + 60;
-                genie.y = player.y;
+                genie.x = playerSprite.container.x + 60;
+                genie.y = playerSprite.container.y;
                 if (label) {
                     label.x = genie.x - label.width / 2;
                     label.y = genie.y - 45;
@@ -743,9 +767,9 @@ export default function GameCanvas({
     // Render teachers on the map and check proximity
     useEffect(() => {
         const world = worldRef.current;
-        const player = playerRef.current;
+        const playerSprite = playerRef.current;
 
-        if (!world || !player) return;
+        if (!world || !playerSprite) return;
 
         // Combine loaded teachers with newly created teachers from props
         const allTeachers = [...loadedTeachers, ...teachers.filter(t =>
@@ -793,8 +817,8 @@ export default function GameCanvas({
             }
 
             // Check proximity to current player
-            const dx = teacher.x - player.x;
-            const dy = teacher.y - player.y;
+            const dx = teacher.x - playerSprite.container.x;
+            const dy = teacher.y - playerSprite.container.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
             if (distance <= proximityThreshold) {
