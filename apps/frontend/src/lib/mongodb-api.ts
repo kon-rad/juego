@@ -51,6 +51,7 @@ export async function savePlayerToMongoDB(playerData: {
     isAI?: boolean;
 }): Promise<MongoDBPlayer | null> {
     try {
+        console.log('Saving player to MongoDB:', playerData.name);
         const response = await fetch(`${API_URL}/api/game/player`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -65,11 +66,13 @@ export async function savePlayerToMongoDB(playerData: {
         });
 
         if (!response.ok) {
-            console.error('Failed to save player to MongoDB:', response.statusText);
+            const errorText = await response.text();
+            console.error('Failed to save player to MongoDB:', response.status, errorText);
             return null;
         }
 
         const result = await response.json();
+        console.log('Player saved successfully:', result);
         return result;
     } catch (error) {
         console.error('Error saving player to MongoDB:', error);

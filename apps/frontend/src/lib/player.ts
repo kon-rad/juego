@@ -225,6 +225,7 @@ export async function getOrCreatePlayerFromMongoDB(): Promise<PlayerData> {
     const existingMongoDBId = getMongoDBPlayerId();
 
     if (existingMongoDBId) {
+        console.log('Found existing MongoDB player ID:', existingMongoDBId);
         // We have a MongoDB ID, return the player data with it
         return {
             ...localPlayerData,
@@ -233,25 +234,32 @@ export async function getOrCreatePlayerFromMongoDB(): Promise<PlayerData> {
     }
 
     // No MongoDB ID, create a new player in MongoDB
-    const mongoPlayer = await savePlayerToMongoDB({
-        name: localPlayerData.name,
-        avatarColor: localPlayerData.avatarColor,
-        x: localPlayerData.x,
-        y: localPlayerData.y,
-        isAI: false
-    });
+    console.log('No MongoDB ID found, creating new player in database...');
+    try {
+        const mongoPlayer = await savePlayerToMongoDB({
+            name: localPlayerData.name,
+            avatarColor: localPlayerData.avatarColor,
+            x: localPlayerData.x,
+            y: localPlayerData.y,
+            isAI: false
+        });
 
-    if (mongoPlayer && mongoPlayer.id) {
-        // Store the MongoDB ID for future use
-        setMongoDBPlayerId(mongoPlayer.id);
+        if (mongoPlayer && mongoPlayer.id) {
+            // Store the MongoDB ID for future use
+            console.log('✅ Player created in MongoDB with ID:', mongoPlayer.id);
+            setMongoDBPlayerId(mongoPlayer.id);
 
-        return {
-            ...localPlayerData,
-            mongodbId: mongoPlayer.id
-        };
+            return {
+                ...localPlayerData,
+                mongodbId: mongoPlayer.id
+            };
+        }
+
+        // Failed to create in MongoDB, return without MongoDB ID
+        console.error('❌ Failed to create player in MongoDB: No ID returned');
+        return localPlayerData;
+    } catch (error) {
+        console.error('❌ Error creating player in MongoDB:', error);
+        return localPlayerData;
     }
-
-    // Failed to create in MongoDB, return without MongoDB ID
-    console.warn('Failed to create player in MongoDB, using localStorage only');
-    return localPlayerData;
 }
