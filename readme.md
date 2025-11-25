@@ -49,10 +49,10 @@ Juego Quest video demo
 [Watch Demo Video](https://www.youtube.com/watch?v=0gSyJhtMJ1E)
 
 ### Project Screenshots
-![Project Screenshot 1](public/demo/juego-screenshot-1.png)
-![Project Screenshot 2](public/demo/smart-contracts-deployed.png)
-![Project Screenshot 3](public/demo/teacher-caht.png)
-![Project Screenshot 4](public/demo/user-settings.png)
+![Project Screenshot 1](apps/frontend/public/demo/juego-screenshot-1.png)
+![Project Screenshot 2](apps/frontend/public/demo/smart-contracts-deployed.png)
+![Project Screenshot 3](apps/frontend/public/demo/teacher-caht.png)
+![Project Screenshot 4](apps/frontend/public/demo/user-settings.png)
 
 ---
 
@@ -72,30 +72,3 @@ An onchain educational game, explore a world, tell your genie what you want to l
 The game is a multiplayer live 2D world, where you can walk around and chat with other players and AI teachers. I used socket io for the networking to make the game multiplayer, as all the players in the game can be visible on the world. I used mongodb atlas for the database. Hardhat to test, run locally and deploy the smart contracts. Ronin blockchain. Hardhat. Pixi v8 game engine. TogetherAI LLM. Sign in with Ethereum Ronin wallet. NextJS. Mongodb.
 
 ---
-
-### Join the Mailing List
-Get the latest news and updates
-
-Your email address
-
-[Get on the list](https://ethglobal.com)
-
----
-
-### Products
-- Events
-- Pragma
-- Packs
-- Plus New
-- Faucet
-
-### Legal
-- Rules & Conduct
-- Privacy Policy
-
-### Company
-- About
-- Brand
-- Careers Hiring
-
-© 2025 ETHGlobal. All rights reserved.

@@ -49,6 +49,13 @@ export class BlockchainService {
 
   private initialized: boolean = false;
 
+  // Cache for blockchain stats to reduce RPC calls
+  private statsCache: {
+    data: any;
+    timestamp: number;
+  } | null = null;
+  private CACHE_TTL = 60000; // 60 seconds cache
+
   constructor() {
     // Don't throw error in constructor - initialize lazily
     // This allows the app to start even if blockchain isn't configured
@@ -230,7 +237,16 @@ export class BlockchainService {
    */
   async getBlockchainStats() {
     await this.ensureInitialized();
+
+    // Check cache first
+    const now = Date.now();
+    if (this.statsCache && (now - this.statsCache.timestamp) < this.CACHE_TTL) {
+      console.log('Returning cached blockchain stats');
+      return this.statsCache.data;
+    }
+
     try {
+      console.log('Fetching fresh blockchain stats from RPC...');
       const [totalNFTs, totalTokens, tokenName, tokenSymbol, nftName, nftSymbol] = await Promise.all([
         this.getTotalNFTsMinted(),
         this.getTotalTokenSupply(),
@@ -240,7 +256,7 @@ export class BlockchainService {
         this.badgeNFTContract.symbol()
       ]);
 
-      return {
+      const stats = {
         nfts: {
           totalMinted: totalNFTs,
           name: nftName,
@@ -254,6 +270,14 @@ export class BlockchainService {
           contractAddress: await this.learnTokenContract.getAddress()
         }
       };
+
+      // Update cache
+      this.statsCache = {
+        data: stats,
+        timestamp: now
+      };
+
+      return stats;
     } catch (error) {
       console.error('Error fetching blockchain stats:', error);
       throw error; // Re-throw the original error instead of wrapping it

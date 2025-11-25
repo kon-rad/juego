@@ -176,7 +176,13 @@ export default function GameCanvas({
 
                 onPlayerJoined((player: SocketPlayer) => {
                     console.log('Player joined:', player.name);
-                    setOtherPlayers(prev => [...prev, player]);
+                    setOtherPlayers(prev => {
+                        // Prevent duplicates by checking if player already exists
+                        if (prev.some(p => p.id === player.id)) {
+                            return prev;
+                        }
+                        return [...prev, player];
+                    });
                 }),
 
                 onPlayerUpdated((player: SocketPlayer) => {
